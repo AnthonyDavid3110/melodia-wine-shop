@@ -1,26 +1,179 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * Melodia Wine Shop — design foundation (Phase 1)
+ *
+ * Source of truth for the approved Programme V2 visual direction:
+ * warm paper background, near-black ink, restrained oxblood accent,
+ * Fraunces (display) + IBM Plex Sans (interface). See
+ * docs/07-DESIGN-SYSTEM.md for the rationale and contrast verification.
+ *
+ * Public and admin share every token below. Admin does not get a
+ * separate palette — it gets denser spacing/typography choices at the
+ * component level, not different colours.
+ */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  --font-sans: var(--font-interface-raw);
+  --font-display: var(--font-display-raw);
+
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--foreground);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-muted-foreground: var(--muted-foreground);
+
+  --color-card: var(--surface);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--foreground);
+
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--paper);
+  --color-secondary: var(--surface-muted);
+  --color-secondary-foreground: var(--ink);
+
+  --color-accent: var(--oxblood);
+  --color-accent-foreground: var(--paper);
+  --color-sand: var(--sand);
+  --color-sand-foreground: var(--ink);
+
+  --color-muted: var(--surface-muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input-border);
+  --color-ring: var(--oxblood);
+
+  --color-success: var(--success);
+  --color-success-foreground: white;
+  --color-warning: var(--warning);
+  --color-warning-foreground: white;
+  --color-danger: var(--danger);
+  --color-danger-foreground: white;
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: white;
+
+  /* Restrained radius scale — the reference identity (Programme V2) is
+     mostly sharp-cornered; controls get a small, deliberate radius
+     rather than the soft/default shadcn scale. */
+  --radius-xs: calc(var(--radius) * 0.5);
+  --radius-sm: calc(var(--radius) * 0.75);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.5);
+  --radius-xl: calc(var(--radius) * 2.5);
+
+  /* Typographic roles (docs/07-DESIGN-SYSTEM.md §16/§60). Fluid sizes use
+     clamp() so editorial headings scale smoothly instead of jumping at
+     breakpoints. Centralized here so components never hand-roll font
+     sizes (§16, §60). */
+  --text-display: clamp(2.5rem, 2.1rem + 2vw, 3.75rem);
+  --text-display--line-height: 1.05;
+  --text-display--font-weight: 500;
+
+  --text-h1: clamp(2rem, 1.75rem + 1.25vw, 2.5rem);
+  --text-h1--line-height: 1.1;
+  --text-h1--font-weight: 500;
+
+  --text-h2: clamp(1.5rem, 1.35rem + 0.75vw, 1.875rem);
+  --text-h2--line-height: 1.15;
+  --text-h2--font-weight: 500;
+
+  --text-h3: 1.375rem;
+  --text-h3--line-height: 1.25;
+  --text-h3--font-weight: 500;
+
+  --text-body-lg: 1.125rem;
+  --text-body-lg--line-height: 1.6;
+
+  --text-body: 1rem;
+  --text-body--line-height: 1.6;
+
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.55;
+
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.3;
+  --text-label--font-weight: 500;
+
+  --text-price: 1.125rem;
+  --text-price--line-height: 1;
+  --text-price--font-weight: 500;
+
+  --text-metadata: 0.8125rem;
+  --text-metadata--line-height: 1.4;
+
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1.4;
+  --text-caption--font-weight: 500;
+  --text-caption--letter-spacing: 0.2em;
+
+  /* Motion — restrained and purposeful (§49/§50). */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+
+  /* Shadow — used only for floating overlays (popover/dialog), never for
+     inline content sections (§23). Warm-tinted, not pure black. */
+  --shadow-sm: 0 2px 8px -2px rgba(27, 23, 18, 0.12), 0 1px 2px rgba(27, 23, 18, 0.08);
+  --shadow-md: 0 12px 32px -8px rgba(27, 23, 18, 0.22), 0 2px 8px -2px rgba(27, 23, 18, 0.12);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  /* Campaign identity palette — approved Programme V2 direction. */
+  --paper: #f4eee4;
+  --ink: #1b1712;
+  --oxblood: #7a2e2e;
+  --sand: #eedfc4;
+
+  /* Derived neutrals for elevated/admin surfaces — kept close to the
+     paper family, not a separate grayscale system. */
+  --surface: #faf7f0;
+  --surface-muted: #e7e2d6;
+  --muted-foreground: #655f54;
+  --border: rgba(27, 23, 18, 0.14);
+  --input-border: rgba(27, 23, 18, 0.24);
+
+  /* Semantic status colours — functional, not campaign-identity colours.
+     See docs/07-DESIGN-SYSTEM.md for contrast verification; --warning is
+     adjusted from the originally proposed #A6752C (see doc for why). */
+  --success: #3f6b4a;
+  --warning: #8a5f27;
+  --danger: #b23a2e;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --radius: 0.25rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+
+  /* Baseline focus visibility for every interactive element, including
+     plain links/buttons that don't opt into a component-level ring
+     utility. Component primitives may layer a more specific treatment
+     on top; this is the floor, not the ceiling (§51, §35). */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }

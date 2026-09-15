@@ -112,7 +112,7 @@ export default function ProgrammeV2ConceptPage() {
           style={{ backgroundColor: plate }}
           aria-hidden="true"
         />
-        <div className="relative mx-auto grid max-w-6xl gap-10 px-5 py-12 sm:px-8 md:grid-cols-2 md:items-center md:py-20">
+        <div className="relative mx-auto grid max-w-6xl gap-10 px-5 py-12 sm:px-8 md:grid-cols-2 md:items-center md:py-14">
           <div className="relative order-2 md:order-1">
             <span
               className={`${styles.ghostNumeral} -top-10 -left-2 hidden text-[11rem] md:block`}
@@ -210,13 +210,6 @@ export default function ProgrammeV2ConceptPage() {
                     className={`${styles.warmVignette} relative flex h-56 items-center justify-center sm:h-64`}
                     style={{ backgroundColor: plate }}
                   >
-                    <span
-                      className={`${styles.ghostNumeral} top-2 left-3 text-7xl sm:text-8xl`}
-                      style={{ fontFamily: "var(--font-programme-display)" }}
-                      aria-hidden="true"
-                    >
-                      {number}
-                    </span>
                     <PlaceholderBottle
                       label={wine.name}
                       className="h-40 w-16 sm:h-48 sm:w-[4.5rem]"

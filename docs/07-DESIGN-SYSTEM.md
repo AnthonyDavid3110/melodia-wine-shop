@@ -1477,35 +1477,95 @@ The standard is:
 - DECIDED: Website and printed flyer use the same campaign identity.
 - DECIDED: Representative screens must be reviewed before broad UI implementation.
 - DECIDED: Real product photography should eventually use consistent art direction.
+- DECIDED: The selected visual direction is "Programme V2" — an editorial
+  concert-programme identity (warm paper, near-black ink, restrained
+  oxblood accent, numbered programme-entry language for wines), refined
+  from three compared directions (Programme, Cuivres, Sourdine).
+- DECIDED: Display typography is Fraunces; interface typography is IBM
+  Plex Sans.
+- DECIDED: The approved palette and semantic tokens are implemented in
+  `src/app/globals.css` and are the single source of truth for exact
+  values; this document records the direction and rationale, not a
+  parallel copy of the numbers.
 
 ---
 
 # 72. Design decisions still to make
 
-## TBD-DESIGN-001 — Final palette
+## TBD-DESIGN-001 — Final palette — RESOLVED
 
-To be selected after visual exploration.
+Approved palette (Programme V2), implemented as tokens in
+`src/app/globals.css`:
 
-## TBD-DESIGN-002 — Typography
+    paper (background)     #F4EEE4
+    ink (foreground)       #1B1712
+    oxblood (accent)       #7A2E2E
+    sand                   #EEDFC4  — photography surface only, not a
+                                       general UI background
+    surface                #FAF7F0  — cards, dialogs, popovers
+    surface-muted          #E7E2D6  — secondary panels, table stripes
 
-Select display and interface fonts.
+Semantic status colours (functional — admin/status use, not campaign
+identity colours, per the brief for this phase):
 
-## TBD-DESIGN-003 — Campaign lockup
+    success   #3F6B4A  (unchanged from the original proposal)
+    warning   #8A5F27  (adjusted — see below)
+    danger    #B23A2E  (unchanged from the original proposal)
 
-Define final visual treatment of:
+`--warning` was adjusted from the originally proposed `#A6752C`, which
+measured 3.50:1 against paper — below the 4.5:1 WCAG AA threshold for
+normal text. Darkened (same hue) to `#8A5F27`, measuring 4.86:1 on paper
+and 5.60:1 on white, with `success`/`danger` re-verified unchanged
+(5.33:1 and 5.14:1 on paper respectively). Status colour text should
+still be read on `paper`/`surface`, not directly on `surface-muted`
+(warning only reaches ~4.3:1 there); the shared `StatusBadge` primitive
+sidesteps this by keeping the label in `--foreground` and using the
+status colour only for a small dot, per §46.
 
-    Les Vins de Mélodia
+## TBD-DESIGN-002 — Typography — RESOLVED
 
-## TBD-DESIGN-004 — Photography
+    display     Fraunces (400/500/600, italic available)
+    interface   IBM Plex Sans (400/500/600)
 
-Final bottle photography is not yet available.
+Loaded via `next/font/google` in `src/lib/fonts.ts`, wired to the
+`font-display` / `font-sans` utilities.
 
-## TBD-DESIGN-005 — ECM brand assets
+## TBD-DESIGN-003 — Campaign lockup — DIRECTION APPROVED, NOT FINAL
 
-Determine which existing ECM logo variants and assets are available in
-suitable quality.
+The Fraunces typographic treatment of "Les vins de Mélodia" (as built in
+`/design/programme-v2` and carried into the production hero composition
+in `/design-system`) is the approved **current** campaign identity/
+wordmark direction. It is a typographic treatment, not a designed logo,
+and it is explicitly not a final, permanent lockup — the eventual
+relationship between this wordmark and ECM's own brand assets (see
+TBD-DESIGN-005) may still evolve once real ECM brand material is
+available.
 
-## TBD-DESIGN-006 — Flyer
+## TBD-DESIGN-004 — Photography — OPEN
+
+Final bottle photography is not yet available. Unchanged this phase.
+
+## TBD-DESIGN-005 — ECM brand assets — PARTIALLY RESOLVED
+
+What exists in the repository today:
+
+    public/brand/ecm-logo-black.svg
+
+A single black vector mark (a brass-instrument-derived emblem), on a
+transparent background, no wordmark baked in. Verified present and
+usable as-is on light/paper surfaces.
+
+What is still missing:
+
+    a reversed/white variant for dark surfaces
+    any alternate logo lockups (wordmark + mark combined)
+    official brand guidelines / usage rules (clear space, minimum size,
+      colour restrictions)
+
+No reversed/white variant has been fabricated. Until one is supplied or
+commissioned, the mark should only be placed on paper/light backgrounds.
+
+## TBD-DESIGN-006 — Flyer — OPEN
 
 Final flyer layout will be designed after products, prices and campaign
-dates are confirmed.
+dates are confirmed. Unchanged this phase.
