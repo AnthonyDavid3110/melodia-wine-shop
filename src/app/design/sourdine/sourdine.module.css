@@ -1,0 +1,18 @@
+/* Simulated single-source stage lighting behind placeholder bottles, so
+   even a flat silhouette reads as intentionally lit rather than raw. */
+.spotlight {
+  position: relative;
+}
+
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(circle at 50% 35%, rgba(201, 166, 107, 0.35), transparent 65%);
+  z-index: 0;
+}
+
+.spotlight > * {
+  position: relative;
+  z-index: 1;
+}

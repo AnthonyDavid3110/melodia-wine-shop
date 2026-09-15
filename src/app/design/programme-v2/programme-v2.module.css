@@ -1,0 +1,31 @@
+/* Warm, quiet vignette behind bottle clusters — gives photography some
+   atmosphere (the strength borrowed from "Sourdine") without introducing
+   a dark background or gold/spirits-brand lighting language. */
+.warmVignette {
+  position: relative;
+}
+
+.warmVignette::before {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  background: radial-gradient(circle at 50% 40%, rgba(122, 46, 46, 0.14), transparent 70%);
+  z-index: 0;
+}
+
+.warmVignette > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Oversized "ghost" plate numeral — an editorial device reused at hero and
+   wine-plate scale to give the page a recurring, intentional rhythm. */
+.ghostNumeral {
+  position: absolute;
+  font-weight: 500;
+  color: #1b1712;
+  opacity: 0.06;
+  pointer-events: none;
+  user-select: none;
+  line-height: 1;
+}

@@ -1,0 +1,13 @@
+/* Barline-inspired divider: a thin rule with regular tick marks, evoking a
+   measure line without literally drawing musical notation. */
+.barline {
+  height: 1px;
+  background-image: repeating-linear-gradient(
+    to right,
+    currentColor 0,
+    currentColor 1px,
+    transparent 1px,
+    transparent 48px
+  );
+  opacity: 0.55;
+}
