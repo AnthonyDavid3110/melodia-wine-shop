@@ -1,0 +1,11 @@
+.next/
+node_modules/
+pnpm-lock.yaml
+coverage/
+playwright-report/
+test-results/
+public/
+docs/
+CLAUDE.md
+AGENTS.md
+README.md
