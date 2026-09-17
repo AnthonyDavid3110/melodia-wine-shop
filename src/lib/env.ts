@@ -6,6 +6,45 @@ import { z } from "zod";
  */
 export const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+
+  /**
+   * Neon pooled connection string, used by the application at runtime
+   * (src/infrastructure/database/client.ts). Optional here: no route or
+   * server action queries the database yet (Phase 2 adds schema/domain
+   * logic only), so requiring it globally would break every part of the
+   * app before a real Neon project exists. The database client itself
+   * asserts this is present at the point a connection is constructed —
+   * that is where a missing value should fail loudly, not at unrelated
+   * module load time.
+   */
+  DATABASE_URL: z.string().url().optional(),
+
+  /**
+   * Neon direct/unpooled connection string. Used only by drizzle-kit
+   * (migrations) and the seed script — never by the application at
+   * request time. A pooled connection string must not be used for
+   * migrations (Neon's own guidance: it can cause errors).
+   */
+  DATABASE_URL_UNPOOLED: z.string().url().optional(),
+
+  /**
+   * Explicit database-driver selection — deliberately NOT inferred from
+   * the hosting platform (e.g. a `VERCEL` env var). Hosting (Vercel) and
+   * database provider (Neon) are separate architectural concerns and
+   * must not be implicitly coupled: a future deployment target other
+   * than Vercel would still need to talk to Neon via the
+   * `neon-serverless` driver, and a Vercel deployment could in principle
+   * point at a plain Postgres instance.
+   *
+   *   postgres — drizzle-orm/node-postgres (local Docker, tests)
+   *   neon     — drizzle-orm/neon-serverless (Neon)
+   *
+   * Optional here for the same reason DATABASE_URL is optional: nothing
+   * before Gate 3B imports the database client, so requiring this
+   * globally would break unrelated parts of the app. The database
+   * client asserts it is set at the point a connection is constructed.
+   */
+  DATABASE_DRIVER: z.enum(["postgres", "neon"]).optional(),
 });
 
 /**
@@ -34,6 +73,9 @@ export function parseEnv<T extends z.ZodType>(
 
 export const serverEnv = parseEnv(serverSchema, {
   NODE_ENV: process.env.NODE_ENV,
+  DATABASE_URL: process.env.DATABASE_URL,
+  DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_UNPOOLED,
+  DATABASE_DRIVER: process.env.DATABASE_DRIVER,
 });
 
 export const publicEnv = parseEnv(publicSchema, {});

@@ -1,6 +1,8 @@
 .next/
 node_modules/
 pnpm-lock.yaml
+# drizzle-kit generated bookkeeping — not hand-authored, left as generated.
+drizzle/meta/
 coverage/
 playwright-report/
 test-results/

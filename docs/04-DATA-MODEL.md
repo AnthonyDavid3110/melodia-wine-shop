@@ -1502,38 +1502,45 @@ They should only be introduced when an actual requirement exists.
 
 # 46. Open data-model decisions
 
-## TBD-DATA-001 — PSP
+## TBD-DATA-001 — PSP — PARTIALLY RESOLVED (Phase 2)
 
-The selected payment provider will determine some Payment fields.
+Worldline is the selected/preferred provider direction (see
+`08-PAYMENTS.md` DECIDED list). Exact contract, API product and enabled
+payment methods remain open (TBD-PAY-001/002) and do not block the
+schema: `Payment.provider` is plain text, not tied to Worldline
+specifically.
 
-Candidates will be evaluated in `08-PAYMENTS.md`.
+## TBD-DATA-002 — Refund depth — RESOLVED for V1 (Phase 2)
 
-## TBD-DATA-002 — Refund depth
-
-Determine whether V1 requires:
-
-- full refunds only;
-- partial refunds;
-- no application-managed refunds.
+Full-refund workflow only, per `08-PAYMENTS.md` §41/§68. `Payment.status`
+keeps `PARTIALLY_REFUNDED` as an available value for provider/data
+fidelity, but no V1 workflow exposes triggering a partial refund.
 
 ## TBD-DATA-003 — Invoice model
 
 Determine whether invoice data requires a dedicated Invoice entity or
 whether documents can initially be generated directly from Order data.
 
-## TBD-DATA-004 — Settlement workflow
+Still open — out of scope until Phase 12 (Documents and exports).
 
-The conceptual grouped SellerSettlement model is recommended.
+## TBD-DATA-004 — Settlement workflow — RESOLVED (Phase 2)
 
-Final admin UX will be defined in `06-ADMIN-SPEC.md`.
+Grouped SellerSettlement model, implemented as `SellerSettlement` +
+`SellerSettlementOrder` exactly as described in §21/§22 above, confirmed
+sufficient by the admin UX already specified in `06-ADMIN-SPEC.md`
+§18/§38-§39 and `08-PAYMENTS.md` §34-§38.
 
 ## TBD-DATA-005 — Image storage
 
-Provider TBD.
+Provider TBD. Still open — does not block the schema (`imageUrl` is a
+plain string column regardless of provider).
 
 ## TBD-DATA-006 — Admin authentication storage
 
-Depends on authentication solution selected in architecture.
+Depends on authentication solution selected in architecture. Still
+open — Phase 2 creates only a minimal domain-level `AdminUser` table
+(id, email, name, active, timestamps); Better Auth's own required
+tables (session, account, verification) are deferred to Phase 3.
 
 ---
 
@@ -1559,3 +1566,12 @@ Depends on authentication solution selected in architecture.
 - DECIDED: Monetary values use precise representation.
 - DECIDED: Important administrative actions receive a lightweight audit trail.
 - DECIDED: Historical commercial records are not normally physically deleted.
+- DECIDED: V1 implements a full-refund workflow only; no partial-refund
+  UI/workflow (TBD-DATA-002, resolved Phase 2).
+- DECIDED: SellerSettlement/SellerSettlementOrder implement the grouped
+  settlement model (TBD-DATA-004, resolved Phase 2).
+- DECIDED: Foreign keys from Order/OrderItem/OrderBundleComponent/
+  Payment/PaymentEvent/OrderEvent/SellerSettlement/SellerSettlementOrder
+  toward the master or parent record they reference use RESTRICT, not
+  CASCADE — an accidental delete must never silently remove historical,
+  financial or audit data (Phase 2 Gate 2; see also §2.4/§31-§33 above).

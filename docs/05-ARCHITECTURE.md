@@ -300,7 +300,8 @@ Possible providers include:
 - Supabase;
 - another managed PostgreSQL provider.
 
-The final provider is TBD.
+DECIDED (Phase 2, TBD-ARCH-002): Neon is the planned production
+PostgreSQL provider.
 
 Selection criteria:
 
@@ -315,6 +316,46 @@ Selection criteria:
 The application must not depend heavily on provider-specific database
 features unless justified.
 
+## Development database (Phase 2, Gate 3)
+
+DECIDED: local development runs PostgreSQL in Docker (`compose.yaml`,
+PostgreSQL 18 — matching Neon's current default major version), never
+against a real Neon project. Migrations, the development seed, and
+PostgreSQL integration tests (`pnpm test:db`) all run against this
+local database. Neon is not required to develop this application.
+
+Production is not yet deployed. Nothing in this document should be
+read as confirming a live production database exists — see
+`10-IMPLEMENTATION-PLAN.md` Phase 15 for production readiness.
+
+## Database driver selection
+
+DECIDED: the application supports two PostgreSQL drivers behind one
+Drizzle schema — `drizzle-orm/node-postgres` (plain TCP, local Docker
+Postgres and tests) and `drizzle-orm/neon-serverless` (WebSocket,
+Neon). Both implement Drizzle's common `PgDatabase` interface, so
+every query and transaction in the domain/infrastructure layers is
+identical source code regardless of which driver is active
+(`src/infrastructure/database/client.ts`).
+
+Which driver is active is selected by an explicit server-only
+environment variable, `DATABASE_DRIVER` (`postgres` | `neon`) —
+deliberately **not** inferred from the hosting platform (e.g. a
+`VERCEL` variable). Hosting (Vercel) and database provider (Neon) are
+separate architectural concerns: a future deployment target other than
+Vercel would still need `neon-serverless` to talk to Neon, and a
+Vercel deployment could in principle point at plain Postgres. Coupling
+the driver choice to the hosting platform would hide that distinction.
+
+    Local development / tests     DATABASE_DRIVER=postgres
+    Production (Neon)             DATABASE_DRIVER=neon
+
+`drizzle-orm/neon-http` (the commonly-cited default for serverless
+apps) was deliberately not chosen for the Neon path: it does not
+support `db.transaction()`, and this application requires real
+transactions (order creation, payment confirmation, settlement
+completion must be atomic).
+
 ---
 
 # 12. ORM
@@ -324,7 +365,7 @@ Two primary candidates:
     Prisma
     Drizzle
 
-Final decision is TBD.
+DECIDED (Phase 2, TBD-ARCH-001): Drizzle.
 
 Evaluation criteria:
 
@@ -1438,25 +1479,23 @@ Do not create ADRs for trivial implementation details.
 - DECIDED: Main Wix website may remain independent.
 - DECIDED: GitHub is the source repository.
 - DECIDED: Production secrets are not committed.
+- DECIDED: Drizzle ORM (TBD-ARCH-001, resolved in Phase 2).
+- DECIDED: Neon PostgreSQL is the planned production provider
+  (TBD-ARCH-002, resolved in Phase 2). The application uses Neon's
+  pooled connection string at runtime and the direct/unpooled
+  connection string only for migrations and the development seed
+  script.
+- DECIDED: Local development uses PostgreSQL in Docker Compose, never
+  Neon (Phase 2, Gate 3). See "Development database" above.
+- DECIDED: The active PostgreSQL driver (`node-postgres` locally,
+  `neon-serverless` — chosen over `neon-http` for real
+  `db.transaction()` support — against Neon) is selected by the
+  explicit `DATABASE_DRIVER` environment variable, never inferred from
+  the hosting platform. See "Database driver selection" above.
 
 ---
 
 # 61. Technical decisions still to make
-
-## TBD-ARCH-001 — ORM
-
-Choose between:
-
-    Prisma
-    Drizzle
-
-## TBD-ARCH-002 — PostgreSQL provider
-
-Evaluate:
-
-    Neon
-    Supabase
-    other managed PostgreSQL
 
 ## TBD-ARCH-003 — Authentication
 

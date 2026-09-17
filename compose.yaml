@@ -1,0 +1,30 @@
+# Local development PostgreSQL only — never used in production.
+# Production target is Neon (docs/05-ARCHITECTURE.md). Credentials below
+# are local-development-only and intentionally not secret.
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: melodia
+      POSTGRES_PASSWORD: melodia_dev_only
+      POSTGRES_DB: melodia_dev
+    ports:
+      # Bind to localhost only — this database does not need to be
+      # reachable from the local network.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # PostgreSQL 18+ images store data under /var/lib/postgresql
+      # (major-version-specific subdirectories), not .../postgresql/data
+      # as in earlier images — see
+      # https://github.com/docker-library/postgres/pull/1259.
+      - melodia_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U melodia -d melodia_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  melodia_postgres_data:
+    name: melodia-postgres-data
