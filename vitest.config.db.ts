@@ -11,6 +11,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // `server-only` (imported by src/lib/auth/dal.ts) throws
+      // unconditionally under plain Node — its guarantee is normally
+      // enforced by Next's bundler picking the package's "react-server"
+      // export condition, not by Node runtime semantics. Vitest runs in
+      // plain Node, so point it at the package's own no-op `empty.js`
+      // (the same file Next resolves to under that condition) for tests
+      // only; the real app build is untouched and still enforces it.
+      "server-only": fileURLToPath(new URL("./node_modules/server-only/empty.js", import.meta.url)),
     },
   },
   test: {

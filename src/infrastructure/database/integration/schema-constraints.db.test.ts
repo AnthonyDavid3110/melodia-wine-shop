@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
+  adminUsers,
+  authUsers,
   bundleItems,
   campaignProducts,
   campaignSellers,
@@ -461,6 +463,66 @@ describe("valid representative records", () => {
 
       const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, order.id));
       expect(items).toHaveLength(2);
+    });
+  });
+});
+
+describe("admin_users.auth_user_id uniqueness and RESTRICT (Phase 3 Gate 2A)", () => {
+  it("rejects two admin_users rows linked to the same auth identity", async () => {
+    await withRollback(async (tx) => {
+      const [authUser] = await tx
+        .insert(authUsers)
+        .values({ name: "Shared Identity", email: unique("shared") + "@example.test" })
+        .returning();
+      if (!authUser) throw new Error("fixture insert failed");
+
+      await tx.insert(adminUsers).values({
+        email: unique("admin-a") + "@example.test",
+        name: "Admin A",
+        authUserId: authUser.id,
+      });
+
+      await expect(
+        tx.transaction(async (tx2) => {
+          await tx2.insert(adminUsers).values({
+            email: unique("admin-b") + "@example.test",
+            name: "Admin B",
+            authUserId: authUser.id,
+          });
+        }),
+      ).rejects.toThrow();
+    });
+  });
+
+  it("rejects deleting an auth_users row referenced by admin_users.auth_user_id", async () => {
+    await withRollback(async (tx) => {
+      const [authUser] = await tx
+        .insert(authUsers)
+        .values({ name: "Linked Identity", email: unique("linked") + "@example.test" })
+        .returning();
+      if (!authUser) throw new Error("fixture insert failed");
+
+      await tx.insert(adminUsers).values({
+        email: unique("admin-linked") + "@example.test",
+        name: "Linked Admin",
+        authUserId: authUser.id,
+      });
+
+      await expect(
+        tx.transaction(async (tx2) => {
+          await tx2.delete(authUsers).where(eq(authUsers.id, authUser.id));
+        }),
+      ).rejects.toThrow();
+    });
+  });
+
+  it("allows admin_users.auth_user_id to be null (domain admin not yet linked)", async () => {
+    await withRollback(async (tx) => {
+      const [admin] = await tx
+        .insert(adminUsers)
+        .values({ email: unique("unlinked-admin") + "@example.test", name: "Unlinked Admin" })
+        .returning();
+      expect(admin?.authUserId).toBeNull();
     });
   });
 });

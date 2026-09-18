@@ -1507,30 +1507,71 @@ Use managed platform security where appropriate.
 - DECIDED: AI-generated security-sensitive code requires review.
 - DECIDED: CAPTCHA is not required by default.
 - DECIDED: Marketing trackers are not required.
+- DECIDED: Better Auth 1.7.5 (email/password only) is the admin
+  authentication implementation (Phase 3).
+- DECIDED: Authentication identity (`auth_users`, Better Auth-owned) and
+  domain/audit identity (`admin_users`) are kept separate, linked by a
+  nullable unique `admin_users.auth_user_id` (RESTRICT). Authorization
+  lookups use `auth_user_id`, never email. `admin_users.active` is the
+  single authoritative authorization flag.
+- DECIDED: Public admin registration is disabled
+  (`emailAndPassword.disableSignUp: true`) at every layer, permanently.
+  Administrators are provisioned only via `pnpm bootstrap:admin`
+  (interactive, no hardcoded/logged credentials) or, later, an
+  already-authenticated admin inviting another (not yet built).
+- DECIDED: Rate limiting for authentication uses Better Auth's built-in
+  limiter with database-backed storage (`auth_rate_limits`), not the
+  in-memory default — required because serverless instances don't share
+  in-memory state.
+- DECIDED: Disabling an administrator sets `admin_users.active = false`
+  (the authoritative fact, checked on every request) and deletes their
+  `auth_sessions` rows as immediate defence-in-depth cleanup — not the
+  primary authorization mechanism.
+- DECIDED: Proxy (`src/proxy.ts`) is optimistic UX only (redirects on
+  cookie absence); the Data Access Layer (`requireAdmin()`/
+  `getAdminOrNull()` in `src/lib/auth/dal.ts`) is the sole authorization
+  authority and is called directly by every protected route.
 
 ---
 
 # 83. Remaining security decisions
 
-## TBD-SEC-001 — Authentication implementation
+## TBD-SEC-001 — Authentication implementation — RESOLVED (Phase 3)
 
-Finalize Better Auth configuration and authentication method.
+Better Auth 1.7.5 with the official Drizzle adapter, email/password only
+(no social providers), UUID identity generation, `cookieCache` left at
+Better Auth's own default (disabled — every request re-validates against
+the database). Session cookie: `better-auth.session_token`
+(HttpOnly, `SameSite=Lax`, `Secure` in production).
 
-## TBD-SEC-002 — MFA
+Password reset (`emailAndPassword.sendResetPassword`) is deliberately
+**not configured** — Better Auth requires that callback to actually
+deliver a reset email; without it, `requestPasswordReset` fails closed
+(400 `RESET_PASSWORD_DISABLED`) before ever generating a token, so no
+reset URL/token exists to leak. The real reset flow (and its UI) is
+deferred until Phase 11's EmailProvider (Resend) exists — logging the
+reset URL server-side as an interim measure was considered and
+explicitly rejected as a bearer-token-in-logs exposure.
 
-Determine whether admin MFA is enabled at initial launch.
+## TBD-SEC-002 — MFA — DEFERRED, not resolved
 
-Recommended:
+Better Auth's 2FA plugin is intentionally **not installed** in Phase 3
+(it would add its own schema — `two_factor` table plus columns on
+`auth_users` — for a launch-scope decision that hasn't been made). No
+MFA UI exists. Revisit before production launch per the original
+recommendation in this section; adding it later means installing the
+plugin and its schema, not building anything custom.
 
-    yes, if cleanly supported by selected auth setup
+## TBD-SEC-003 — Rate limiting — RESOLVED for authentication (Phase 3)
 
-## TBD-SEC-003 — Rate limiting
-
-Select implementation if required for:
-
-    authentication
-    checkout
-    payment initiation
+Better Auth's built-in rate limiter, `storage: "database"`
+(`auth_rate_limits` table) — verified against the real table, not
+assumed (Gate 2B integration test forces a burst of sign-in attempts
+through the real limiter and confirms both the 429 response and the
+persisted row). Default rule for `/sign-in*`, `/sign-up*`,
+`/change-password*`, `/change-email*`: 3 requests / 10s window (Better
+Auth's own built-in default, not project-specific tuning). Checkout and
+payment-initiation rate limiting remains TBD (Phase 6/10 scope).
 
 ## TBD-SEC-004 — Security headers
 

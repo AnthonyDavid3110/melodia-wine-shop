@@ -955,7 +955,9 @@ possible.
 
 # 24. AdminUser
 
-Represents an authenticated administrator.
+Represents the stable domain/audit identity of an administrator — every
+OrderEvent/SellerSettlement audit reference points at `AdminUser.id`,
+never at the authentication identity below.
 
 ## Fields
 
@@ -963,13 +965,33 @@ Represents an authenticated administrator.
     email
     name
     active
+    authUserId
 
     createdAt
     updatedAt
     lastLoginAt
 
-Authentication-specific fields depend on the selected authentication
-solution and are not defined here.
+`active` is the single authoritative authorization flag (Phase 3). It is
+checked on every request server-side, independent of whether a session
+also happens to exist.
+
+`authUserId` (nullable, unique, `ON DELETE RESTRICT`) links to Better
+Auth's own `auth_users.id` (Phase 3, `src/infrastructure/auth/`) — a
+resolved TBD, see docs/09-SECURITY.md §83 TBD-SEC-001. Authorization
+lookups use `authUserId`, never `email`; `AdminUser.email`/`name` are
+domain/profile snapshots, not kept in lockstep with the authentication
+identity's own email.
+
+## Authentication tables (Phase 3, Better Auth-owned)
+
+Better Auth's own schema — `auth_users`, `auth_sessions`,
+`auth_accounts`, `auth_verifications`, `auth_rate_limits` — lives
+alongside `AdminUser` but is not part of the domain model described in
+this document: it is protocol state Better Auth creates/expires/deletes
+as part of normal operation, not a historical/financial/audit record.
+Unlike this document's RESTRICT-everywhere FK policy, `auth_sessions`
+and `auth_accounts` CASCADE from `auth_users` (see
+`src/infrastructure/database/schema/auth.ts` for the full rationale).
 
 ## V1 permissions
 
@@ -1535,12 +1557,13 @@ sufficient by the admin UX already specified in `06-ADMIN-SPEC.md`
 Provider TBD. Still open — does not block the schema (`imageUrl` is a
 plain string column regardless of provider).
 
-## TBD-DATA-006 — Admin authentication storage
+## TBD-DATA-006 — Admin authentication storage — RESOLVED (Phase 3)
 
-Depends on authentication solution selected in architecture. Still
-open — Phase 2 creates only a minimal domain-level `AdminUser` table
-(id, email, name, active, timestamps); Better Auth's own required
-tables (session, account, verification) are deferred to Phase 3.
+Better Auth 1.7.5's own schema (`auth_users`, `auth_sessions`,
+`auth_accounts`, `auth_verifications`, `auth_rate_limits`), integrated
+alongside the Phase 2 `AdminUser` table via a new nullable unique
+`AdminUser.authUserId` FK. See §24 above and
+docs/09-SECURITY.md §83 TBD-SEC-001.
 
 ---
 

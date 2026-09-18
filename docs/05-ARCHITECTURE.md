@@ -1492,14 +1492,23 @@ Do not create ADRs for trivial implementation details.
   `db.transaction()` support — against Neon) is selected by the
   explicit `DATABASE_DRIVER` environment variable, never inferred from
   the hosting platform. See "Database driver selection" above.
+- DECIDED: Better Auth 1.7.5, official Drizzle adapter (TBD-ARCH-003,
+  resolved in Phase 3 — see docs/09-SECURITY.md §83 TBD-SEC-001 and
+  docs/04-DATA-MODEL.md §24 for the full design). Authentication
+  identity (`auth_users`) and domain/audit identity (`admin_users`) are
+  kept separate. Authorization is enforced by a server-only Data Access
+  Layer (`src/lib/auth/dal.ts`), never by `src/proxy.ts` (Next.js 16's
+  renamed `middleware.ts`), which is optimistic UX only — it may redirect
+  an obviously-anonymous request away from `/admin` but never performs
+  the authoritative check.
 
 ---
 
 # 61. Technical decisions still to make
 
-## TBD-ARCH-003 — Authentication
+## TBD-ARCH-003 — Authentication — RESOLVED (Phase 3)
 
-Evaluate an appropriate admin-only authentication solution.
+Better Auth 1.7.5. See the DECIDED entry above.
 
 ## TBD-ARCH-004 — Payment provider
 

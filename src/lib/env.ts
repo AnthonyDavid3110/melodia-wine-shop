@@ -45,6 +45,23 @@ export const serverSchema = z.object({
    * client asserts it is set at the point a connection is constructed.
    */
   DATABASE_DRIVER: z.enum(["postgres", "neon"]).optional(),
+
+  /**
+   * Signs/encrypts Better Auth sessions. Optional here for the same
+   * "don't break unrelated module loads" reason as DATABASE_URL — the
+   * auth server instance (src/infrastructure/auth/server.ts) asserts
+   * this is present at construction time. Local development may use an
+   * explicit fake value (never a real secret); production requires a
+   * freshly generated one, never committed.
+   */
+  BETTER_AUTH_SECRET: z.string().optional(),
+
+  /**
+   * Base URL Better Auth uses to build callback links and as the
+   * default trusted origin. http://localhost:3000 locally,
+   * https://vins.ecmelodia.ch in production.
+   */
+  BETTER_AUTH_URL: z.string().url().optional(),
 });
 
 /**
@@ -76,6 +93,8 @@ export const serverEnv = parseEnv(serverSchema, {
   DATABASE_URL: process.env.DATABASE_URL,
   DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_UNPOOLED,
   DATABASE_DRIVER: process.env.DATABASE_DRIVER,
+  BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
+  BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
 });
 
 export const publicEnv = parseEnv(publicSchema, {});
