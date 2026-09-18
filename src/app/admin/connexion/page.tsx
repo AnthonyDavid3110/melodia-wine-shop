@@ -5,6 +5,7 @@ import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
   title: "Connexion — Administration Mélodia",
+  robots: { index: false, follow: false },
 };
 
 /**

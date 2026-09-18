@@ -207,6 +207,24 @@ Allowed conceptual values:
 - Campaign-specific values must not be hardcoded.
 - Historical campaigns remain available.
 - Closing a campaign does not prevent fulfilment work.
+- At most one campaign may have `status = ACTIVE` at a time — enforced
+  at the database level by a partial unique index
+  (`campaigns_one_active_idx` on `status` where `status = 'ACTIVE'`,
+  drizzle/0002, Phase 4 Gate 2). Zero ACTIVE campaigns is valid (no
+  active sale). The application never silently resolves a
+  multiple-ACTIVE result if this invariant is ever violated — that is
+  a technical error, not a business state.
+- `status` alone determines public visibility. `openingDate`/
+  `closingDate` are informational only and never automatically gate
+  the public catalogue (Phase 4 Gate 1 decision).
+- Public visibility by status: `ACTIVE` → publicly browsable; `DRAFT`,
+  `CLOSED`, `ARCHIVED` → not publicly browsable. `CLOSED` remains
+  available administratively for reporting/history, matching
+  `01-PRODUCT-SPEC.md` §4.3 (resolves a prior conflict with
+  `10-IMPLEMENTATION-PLAN.md`, now corrected there too).
+- The public site (`/`) always represents the single ACTIVE campaign
+  directly — there is no public campaign slug/ID route in V1
+  (docs/05-ARCHITECTURE.md §8).
 
 ---
 
@@ -308,6 +326,15 @@ Product:
 The Product can remain the same while CampaignProduct stores the
 campaign-specific commercial configuration.
 
+## Public visibility (Phase 4 Gate 1/2)
+
+A product is publicly visible in the active campaign's catalogue only
+when both `Product.active = true` and this row's `active = true`.
+Display order is `displayOrder ASC`, with a deterministic secondary
+ordering (product name) when values tie. The public catalogue renders
+correctly for any number of visible products — it must never assume a
+fixed count.
+
 ---
 
 # 8. Bundle
@@ -380,6 +407,20 @@ BundleItems are used for:
 
 - displaying bundle composition;
 - calculating bottle requirements.
+
+## Bundle integrity (Phase 4 Gate 1/2)
+
+`BundleItem.productId` references `Product`, not `CampaignProduct` —
+nothing at the schema level guarantees a bundle's components are
+actually offered in that bundle's own campaign. The public catalogue
+query enforces this at the application level instead: every
+BundleItem's product must resolve to an active, visible
+CampaignProduct of the bundle's own campaign (or a Bundle with no items
+at all). If any component fails, the **entire bundle** is excluded
+from the public catalogue — never displayed with a partial or broken
+composition. Displayed composition order follows each component's own
+`CampaignProduct.displayOrder`, not insertion order or a separate
+field on BundleItem.
 
 ---
 
@@ -1565,6 +1606,14 @@ alongside the Phase 2 `AdminUser` table via a new nullable unique
 `AdminUser.authUserId` FK. See §24 above and
 docs/09-SECURITY.md §83 TBD-SEC-001.
 
+## TBD-DATA-007 — Bottle volume
+
+Not modeled in Phase 4. `shortDescription`/`description` deliberately
+do not carry volume — it is conceptually structured product data, not
+prose. If the final wine selection requires representing a non-standard
+bottle size, add a structured `volumeMl` (or similar) column in a
+dedicated future migration rather than encoding it in free text.
+
 ---
 
 # 47. Decisions
@@ -1598,3 +1647,17 @@ docs/09-SECURITY.md §83 TBD-SEC-001.
   toward the master or parent record they reference use RESTRICT, not
   CASCADE — an accidental delete must never silently remove historical,
   financial or audit data (Phase 2 Gate 2; see also §2.4/§31-§33 above).
+- DECIDED: At most one campaign may be ACTIVE at a time, enforced by a
+  database partial unique index, not just application logic (Phase 4
+  Gate 2).
+- DECIDED: Campaign `status` alone determines public catalogue
+  visibility; dates never automatically gate it (Phase 4 Gate 1).
+- DECIDED: `CLOSED` campaigns are not publicly browsable in V1; they
+  remain available administratively (Phase 4 Gate 2 — resolves the
+  prior conflict between this document and
+  `10-IMPLEMENTATION-PLAN.md`).
+- DECIDED: A Bundle with any invalid/out-of-campaign/inactive component
+  is excluded from the public catalogue in its entirety, never
+  partially displayed (Phase 4 Gate 1/2).
+- DECIDED: No public product-detail route (`/vins/[slug]`) in Phase 4
+  (Phase 4 Gate 1 — deferred, not excluded permanently).

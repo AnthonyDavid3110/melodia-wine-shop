@@ -4,6 +4,7 @@ import { LogoutButton } from "./logout-button";
 
 export const metadata: Metadata = {
   title: "Administration — Mélodia",
+  robots: { index: false, follow: false },
 };
 
 /**

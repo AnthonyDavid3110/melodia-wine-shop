@@ -231,6 +231,16 @@ Expected routes may include:
 
 Exact route naming may evolve during design.
 
+**DECIDED (Phase 4 Gate 1):** `/` directly represents the single
+ACTIVE campaign — there is no public campaign slug/ID route in V1. This
+matches the product spec's "one active sales cycle at a time" (V1) and
+keeps the Campaign concept itself (already in the database) as what
+carries reusability into future years, not the URL structure.
+`/vins/[slug]` (individual product detail pages) is deferred past
+Phase 4: the homepage's editorial wine rows already show full
+description/tasting content inline, and there is no "add to cart"
+destination yet to make a separate page worth visiting.
+
 Public route names should be French where useful because the public
 application is French-only.
 
@@ -1501,6 +1511,20 @@ Do not create ADRs for trivial implementation details.
   renamed `middleware.ts`), which is optimistic UX only — it may redirect
   an obviously-anonymous request away from `/admin` but never performs
   the authoritative check.
+- DECIDED: `/` directly represents the single ACTIVE campaign; no
+  public campaign slug/ID route in V1 (Phase 4 Gate 1 — see §8 above).
+- DECIDED: The public catalogue read model (`getPublicCatalog()`,
+  `src/infrastructure/catalog/`) separates a pure, DB-free shaping
+  layer (`src/domain/catalog/`) from the actual Drizzle query — the
+  same domain/infrastructure split used throughout this codebase, not
+  the earlier 4-layer `domain/application/infrastructure/app` sketch in
+  §37 (no `application/` folder exists anywhere in this repository).
+- DECIDED: The public homepage (`/`) is dynamically rendered
+  (`export const dynamic = "force-dynamic"`, Phase 4 Gate 2) —
+  `getPublicCatalog()` reads through a raw `pg` connection, not
+  `fetch()`, so Next has no automatic signal to treat the route as
+  dynamic; without this it silently prerenders once at build time and
+  never reflects a later admin change.
 
 ---
 

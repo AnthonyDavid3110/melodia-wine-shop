@@ -184,9 +184,9 @@ Recommended implementation phases:
 
     Phase 3   Admin authentication
 
-    Phase 4   Campaign and catalogue administration
+    Phase 4   Public catalogue
 
-    Phase 5   Public catalogue
+    Phase 5   Campaign and catalogue administration
 
     Phase 6   Cart and checkout
 
@@ -649,7 +649,121 @@ No sensitive admin endpoint is accessible without authentication.
 
 ---
 
-# 33. Phase 4 — Campaign and catalogue administration
+# 33. Phase 4 — Public catalogue
+
+> **Reordering note (Phase 4 Gate 1, adopted for this project):** this
+> phase and the next were swapped from the sequence originally sketched
+> below. The public catalogue was built before the admin
+> campaign/catalogue editor, so that the catalogue's real read model
+> and public pages exist before an editor is built for them, and so a
+> visitor-facing result exists sooner. "Phase 4" refers to the public
+> catalogue in every gate report, commit, and later document from this
+> point onward; "Phase 5" refers to the admin campaign/catalogue editor
+> described further below. Phases 0–3 are unaffected by this swap.
+
+## Goal
+
+Build the customer-facing campaign experience.
+
+Implement:
+
+    campaign homepage
+    wine catalogue
+    wine details
+    discovery bundle
+    campaign explanation
+    delivery explanation
+
+Product detail pages (`/vins/[slug]`) were deliberately deferred out of
+this phase — see docs/05-ARCHITECTURE.md §8 and the Phase 4 Gate 1
+report. The editorial wine rows on the homepage already show full
+description/tasting content inline, and there is no "add to cart"
+destination yet to make a separate detail page worth visiting.
+
+---
+
+# 34. Phase 4 — Data source
+
+Public pages must use database campaign data.
+
+Do not hardcode production wines into React components.
+
+Placeholder data should come through the same data model as final data.
+
+The catalogue must render correctly for any product count — it must
+never assume a fixed number of wines (the original ~six-wine V1
+estimate is not a code-level constraint).
+
+---
+
+# 35. Phase 4 — Campaign state
+
+Public behaviour (Phase 4 Gate 1/2 — resolves the conflict that existed
+between this section and `01-PRODUCT-SPEC.md` §4.3 about `CLOSED`):
+
+    DRAFT
+        not publicly browsable
+
+    ACTIVE
+        catalogue browsable; the only status the public site ever shows
+        in full
+
+    CLOSED
+        NOT publicly browsable in V1 — remains available
+        administratively for history/reporting
+        (matches 01-PRODUCT-SPEC.md §4.3)
+
+    ARCHIVED
+        not publicly browsable
+
+`/` always represents the single ACTIVE campaign directly — there is no
+public campaign slug/ID route in V1 (docs/05-ARCHITECTURE.md §8). A
+PostgreSQL partial unique index (`campaigns_one_active_idx`,
+drizzle/0002) enforces "at most one ACTIVE campaign" at the database
+level; the application never silently picks one if that invariant is
+ever violated. Campaign `status` is the sole authority for public
+visibility — `openingDate`/`closingDate` are informational only and
+never automatically gate the catalogue.
+
+Product visibility additionally requires `products.active = true AND
+campaignProducts.active = true`; ordering comes from
+`campaignProducts.displayOrder` (see docs/04-DATA-MODEL.md §6/§7). A
+Bundle is excluded from the public catalogue in its entirety if any of
+its components is not an active CampaignProduct of the same active
+campaign — never partially rendered.
+
+Bottle volume is intentionally not modeled or displayed in this phase —
+if the final wine selection requires it, a structured `volumeMl` field
+can be added in a future migration; it does not belong in
+`shortDescription`/`description`.
+
+---
+
+# 36. Phase 4 — SEO and metadata
+
+Implement appropriate:
+
+    title
+    description
+    social sharing metadata
+
+Campaign links shared through WhatsApp/social networks should present
+professionally.
+
+`/admin/**` is excluded from indexing (robots.txt and per-page
+`robots: noindex`).
+
+---
+
+# 37. Phase 4 — Completion criteria
+
+A customer can browse the complete campaign comfortably on a smartphone.
+
+No checkout required yet.
+
+---
+
+# 38. Phase 5 — Campaign and catalogue administration
 
 ## Goal
 
@@ -666,7 +780,7 @@ Implement:
 
 ---
 
-# 34. Phase 4 — Product images
+# 39. Phase 5 — Product images
 
 Integrate selected image storage or provide a clean temporary abstraction.
 
@@ -676,7 +790,7 @@ Use replaceable placeholders.
 
 ---
 
-# 35. Phase 4 — Validation
+# 40. Phase 5 — Validation
 
 Admin forms must validate server-side.
 
@@ -690,76 +804,9 @@ Test:
 
 ---
 
-# 36. Phase 4 — Completion criteria
-
-Admin can configure a complete campaign without database editing.
-
----
-
-# 37. Phase 5 — Public catalogue
-
-## Goal
-
-Build the customer-facing campaign experience.
-
-Implement:
-
-    campaign homepage
-    wine catalogue
-    wine details
-    discovery bundle
-    campaign explanation
-    delivery explanation
-
----
-
-# 38. Phase 5 — Data source
-
-Public pages must use database campaign data.
-
-Do not hardcode production wines into React components.
-
-Placeholder data should come through the same data model as final data.
-
----
-
-# 39. Phase 5 — Campaign state
-
-Public behaviour:
-
-    DRAFT
-        not publicly orderable
-
-    ACTIVE
-        catalogue and ordering available
-
-    CLOSED
-        public campaign may remain visible
-        new orders disabled
-
-    ARCHIVED
-        historical behaviour as defined later
-
----
-
-# 40. Phase 5 — SEO and metadata
-
-Implement appropriate:
-
-    title
-    description
-    social sharing metadata
-
-Campaign links shared through WhatsApp/social networks should present
-professionally.
-
----
-
 # 41. Phase 5 — Completion criteria
 
-A customer can browse the complete campaign comfortably on a smartphone.
-
-No checkout required yet.
+Admin can configure a complete campaign without database editing.
 
 ---
 

@@ -1,69 +1,88 @@
-import Image from "next/image";
+import { cache } from "react";
+import type { Metadata } from "next";
+import { getPublicCatalog } from "@/infrastructure/catalog/get-public-catalog";
+import { PublicHeader } from "@/components/public/header";
+import { Hero } from "@/components/public/hero";
+import { WineCollection } from "@/components/public/wine-collection";
+import { EmptySelectionNotice } from "@/components/public/empty-selection-notice";
+import { DiscoveryBoxSection } from "@/components/public/discovery-box";
+import { DeliverySection } from "@/components/public/delivery-section";
+import { EcmSection } from "@/components/public/ecm-section";
+import { PublicFooter } from "@/components/public/footer";
+import { NoActiveCampaignNotice } from "@/components/public/no-active-campaign-notice";
 
-export default function Home() {
+/**
+ * `getPublicCatalog()` isn't a `fetch()` call, so Next's automatic
+ * per-request fetch memoization doesn't cover it — both
+ * `generateMetadata` and the page body need the same result, so this
+ * wraps it with React's `cache()` exactly as Next's own docs recommend
+ * ("React cache can be used if fetch is unavailable" —
+ * generate-metadata.md), the same pattern already used for
+ * request-scoped memoization in src/lib/auth/dal.ts.
+ */
+const getCachedPublicCatalog = cache(getPublicCatalog);
+
+/**
+ * `getPublicCatalog()` reads through a raw `pg` connection, not
+ * `fetch()`, so Next has no Dynamic API/uncached-fetch signal to
+ * automatically treat this route as dynamic — without this it gets
+ * prerendered once at build time (verified: the build output showed
+ * `/` as `○ (Static)`), which would freeze in whatever campaign state
+ * existed at build time and never reflect a later admin change. Gate 2
+ * decision: dynamic rendering is appropriate for V1, no premature ISR.
+ */
+export const dynamic = "force-dynamic";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const catalog = await getCachedPublicCatalog();
+  if (catalog.state !== "active") {
+    return { alternates: { canonical: "/" } };
+  }
+
+  const title = catalog.campaign.publicTitle ?? catalog.campaign.name;
+  const description = catalog.campaign.description ?? undefined;
+
+  return {
+    title,
+    description,
+    alternates: { canonical: "/" },
+    openGraph: { title, description, type: "website" },
+  };
+}
+
+/**
+ * The real public storefront (Phase 4 Gate 2), replacing the
+ * create-next-app placeholder. Server Component, dynamic rendering — a
+ * technical/query failure is NOT caught here; it propagates to
+ * src/app/error.tsx (Gate 1/2: business states vs. technical errors
+ * stay distinct).
+ */
+export default async function HomePage() {
+  const catalog = await getCachedPublicCatalog();
+
+  if (catalog.state === "no-active-campaign") {
+    return (
+      <div className="flex min-h-full flex-1 flex-col">
+        <PublicHeader />
+        <NoActiveCampaignNotice />
+        <PublicFooter />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex w-full max-w-3xl flex-1 flex-col items-center justify-between bg-white px-16 py-32 sm:items-start dark:bg-black">
-        <Image
-          className="h-5 w-[100px] dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl leading-10 font-semibold tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="bg-foreground text-background flex h-12 w-full items-center justify-center gap-2 rounded-full px-5 transition-colors hover:bg-[#383838] md:w-[158px] dark:hover:bg-[#ccc]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="h-[14px] w-4 dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] md:w-[158px] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="flex min-h-full flex-1 flex-col">
+      <PublicHeader />
+      <Hero campaign={catalog.campaign} />
+      {catalog.wines.length > 0 ? (
+        <WineCollection wines={catalog.wines} />
+      ) : (
+        <EmptySelectionNotice />
+      )}
+      <DiscoveryBoxSection bundles={catalog.bundles} />
+      <DeliverySection />
+      <EcmSection />
+      <PublicFooter />
     </div>
   );
 }
