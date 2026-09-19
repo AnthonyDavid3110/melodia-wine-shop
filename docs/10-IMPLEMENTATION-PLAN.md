@@ -188,9 +188,9 @@ Recommended implementation phases:
 
     Phase 5   Campaign and catalogue administration
 
-    Phase 6   Cart and checkout
+    Phase 6   Customer cart
 
-    Phase 7   Order administration
+    Phase 7   Checkout and order administration
 
     Phase 8   Offline payment and seller workflows
 
@@ -820,23 +820,38 @@ Admin can configure a complete campaign without database editing.
 
 ---
 
-# 42. Phase 6 — Cart and checkout
+# 42. Phase 6 — Customer cart
+
+> **Reordering note (Phase 6 Gate, adopted for this project):** this
+> phase was narrowed to cart only. The original scope below bundled
+> cart, checkout, customer information, seller selection,
+> payment-method selection, and order review into one "Phase 6." In
+> practice cart is a self-contained, low-risk, purely client-side
+> feature with no Order creation, while checkout/order creation is a
+> financial-state-creating operation that deserves its own gate and
+> closer alignment with `08-PAYMENTS.md`/`09-SECURITY.md`. Checkout,
+> customer information, seller selection, payment-method selection,
+> order review, and transactional order creation (previously §44/§45/§46
+> below) move to Phase 7, folded into what was "Order administration" —
+> renamed "Checkout and order administration" — since admin order
+> management needs Orders to exist first regardless of who creates them
+> (customer checkout or admin manual entry). No previously planned
+> functionality was dropped, only relocated: see §44/§45/§46/§48 below.
+> Phases 0–5 and 8–16 are unaffected by this split.
 
 ## Goal
 
-Allow creation of valid unpaid/offline orders.
+Let a customer build and adjust a cart against the live campaign
+catalogue — no order is created in this phase.
 
 Implement:
 
     cart
     quantity management
-    checkout
-    customer information
-    seller selection
-    payment-method selection
-    order review
 
-Online PSP integration may still be mocked/disabled at this stage.
+No checkout, no customer information collection, no seller selection,
+no payment-method selection, and no Order of any kind. Those move to
+Phase 7 (§44/§45/§46/§48 below).
 
 ---
 
@@ -844,7 +859,10 @@ Online PSP integration may still be mocked/disabled at this stage.
 
 Cart may use client-side state.
 
-Server remains authoritative at checkout.
+Server remains authoritative for pricing/availability at every read (the
+cart itself never stores or trusts a price — see
+`05-ARCHITECTURE.md`'s cart storage/trust-boundary section) and will
+remain authoritative at checkout once Phase 7 implements it.
 
 Test:
 
@@ -853,11 +871,12 @@ Test:
     empty cart
     stale products
     changed price
-    closed campaign
+    closed campaign / no active campaign
+    campaign change discards a stale stored cart
 
 ---
 
-# 44. Phase 6 — Seller selector
+# 44. Phase 7 — Seller selector
 
 Implement searchable seller combobox.
 
@@ -870,7 +889,7 @@ Server revalidates seller eligibility during order creation.
 
 ---
 
-# 45. Phase 6 — Order creation
+# 45. Phase 7 — Order creation
 
 Implement transactional order creation.
 
@@ -889,7 +908,7 @@ safely under concurrency.
 
 ---
 
-# 46. Phase 6 — Duplicate protection
+# 46. Phase 7 — Duplicate protection
 
 Introduce checkout duplicate-submission protection.
 
@@ -899,21 +918,40 @@ Test double-click and request retry scenarios.
 
 # 47. Phase 6 — Completion criteria
 
-A customer can create a valid seller-payment order end-to-end.
+A customer can build a cart from the live catalogue, adjust or remove
+quantities, and see an accurate subtotal computed from current
+prices — comfortably on a smartphone.
 
-The resulting Order is visible in the database with correct snapshots and
-totals.
+No order is created yet. No checkout entry point is reachable yet
+(`docs/03-USER-FLOWS.md` checkout flow begins in Phase 7).
 
 ---
 
-# 48. Phase 7 — Order administration
+# 48. Phase 7 — Checkout and order administration
+
+> See the Phase 6 Gate reordering note at §42: this phase now begins
+> with customer checkout/order creation (§44 Seller selector, §45 Order
+> creation, §46 Duplicate protection above — physically still numbered
+> under their original position in this document, retitled to Phase 7)
+> before its originally-scoped order administration work below. Allow
+> creation of valid unpaid/offline orders is this phase's opening goal;
+> online PSP integration may still be mocked/disabled at this stage
+> (that is Phase 10).
 
 ## Goal
 
-Make orders operationally manageable.
+Implement customer checkout (customer information, seller selection,
+payment-method selection, order review, transactional order creation —
+§44/§45/§46 above) and make the resulting orders operationally
+manageable.
 
 Implement:
 
+    checkout
+    customer information
+    seller selection
+    payment-method selection
+    order review
     order list
     search
     filters
@@ -950,6 +988,10 @@ Non-monetary edits may remain possible.
 ---
 
 # 51. Phase 7 — Completion criteria
+
+A customer can create a valid seller-payment order end-to-end. The
+resulting Order is visible in the database with correct snapshots and
+totals.
 
 Paper and online orders can be managed from one admin interface.
 
@@ -1904,7 +1946,8 @@ Application implementation:
     Phase 3   Admin authentication              COMPLETE
     Phase 4   Public catalogue                  COMPLETE
     Phase 5   Campaign/catalogue administration COMPLETE
-    Phase 6+  Not started
+    Phase 6   Customer cart                     COMPLETE
+    Phase 7+  Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master
@@ -1912,6 +1955,12 @@ data, and CampaignSeller participation — see §38 below for scope and
 the Phase 5 gate reports (1, 2A, 2B, 2C) for what was implemented and
 verified. Reviewed and approved across all gates, including manual
 visual review of the admin UI.
+
+Phase 6 covers the customer cart only — see §42/§43 above for scope and
+the reordering note explaining the split from the originally-bundled
+"cart and checkout." No Order is created in Phase 6; checkout and order
+creation are Phase 7. Cart storage format and trust boundary are
+documented in `05-ARCHITECTURE.md`.
 
 The project was specified before implementation.
 

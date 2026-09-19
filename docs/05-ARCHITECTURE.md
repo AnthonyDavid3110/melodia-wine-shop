@@ -238,8 +238,9 @@ keeps the Campaign concept itself (already in the database) as what
 carries reusability into future years, not the URL structure.
 `/vins/[slug]` (individual product detail pages) is deferred past
 Phase 4: the homepage's editorial wine rows already show full
-description/tasting content inline, and there is no "add to cart"
-destination yet to make a separate page worth visiting.
+description/tasting content inline, and (since Phase 6) the add-to-cart
+control lives directly on each row too — there is still no distinct
+content or action a separate detail page would add.
 
 Public route names should be French where useful because the public
 application is French-only.
@@ -571,9 +572,69 @@ At checkout, the server must reload:
 
 The server calculates the authoritative total.
 
+## Phase 6 implementation (adopted)
+
+The cart itself is pure client state — no request to the server ever
+carries a cart. There is nothing to trust or distrust yet; the trust
+boundary in §20 becomes load-bearing once Phase 7 submits a cart to
+create an Order.
+
+**Storage — what is persisted, and what never is.** `localStorage`
+holds only identity and quantity, versioned so a future format change
+can be detected and discarded rather than misread:
+
+    {
+      "version": 1,
+      "campaignId": "<uuid, or \"\" if not yet known this session>",
+      "items": [
+        { "type": "PRODUCT" | "BUNDLE", "id": "<uuid>", "quantity": <positive integer> }
+      ]
+    }
+
+Name and price are never persisted. Every render resolves each stored
+`(type, id)` against a freshly-fetched `PublicCatalog` (the same read
+model the homepage uses); an id absent from `catalog.wines`/
+`catalog.bundles` is treated as unavailable (covers: product
+deactivated, hidden from this campaign, removed, or — for a bundle —
+composition no longer valid, since `PublicCatalog` already excludes
+invalid bundles). A malformed, wrong-version, or unparseable stored
+value is discarded entirely rather than partially trusted; a malformed
+individual item within an otherwise valid stored cart is dropped, not
+allowed to corrupt the rest.
+
+**Client/server split.** A single `CartProvider` (React Context +
+reducer, no new dependency) sits in the root layout and owns
+`localStorage` read/write. It deliberately does not know the current
+campaign at render time — the root layout has no reason to run a
+catalogue database query. `campaignId: ""` is the "not yet known this
+session" sentinel. A separate, tiny component (`CartCampaignSync`) is
+rendered only by pages that already fetch the authoritative
+`PublicCatalog` server-side (`/` and `/panier`) and reconciles the
+hydrated cart's `campaignId` against the real one: matching campaign is
+a no-op; the empty sentinel adopts the real campaign id and keeps
+whatever items are already present; any other, already-known campaign
+id is treated as a genuinely stale prior-session cart and is discarded
+entirely — never merged with the new campaign's items. This keeps
+campaign-awareness out of the provider while still guaranteeing a stale
+cart can never silently carry into a different campaign.
+
+**Hydration safety.** The first client render must render byte-for-byte
+what the server rendered — `localStorage` is never read during render
+or in a `useState` initializer, only inside a mount-only effect, after
+which a second effect (gated on hydration having completed) begins
+persisting. This ordering is unit- and e2e-tested; getting it backward
+(initializing an empty cart, persisting it, and only then hydrating)
+silently destroys a returning customer's real cart.
+
 ---
 
 # 20. Checkout trust boundary
+
+Applies from Phase 7 onward, once checkout exists and a cart is
+actually submitted to the server. In Phase 6 (cart only, see §19) no
+request carries a cart at all, so nothing here is exercised yet — it is
+recorded now so Phase 7 has a fixed target rather than inventing the
+boundary under implementation pressure.
 
 The browser may submit:
 

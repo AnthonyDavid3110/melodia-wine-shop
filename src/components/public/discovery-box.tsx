@@ -2,6 +2,7 @@ import Image from "next/image";
 import type { PublicBundle } from "@/domain/catalog/public-catalog";
 import { formatCHF } from "@/domain/money";
 import { Display } from "@/components/ui/typography";
+import { AddToCartControl } from "@/components/cart/add-to-cart-control";
 import { PlaceholderBottle } from "./placeholder-bottle";
 
 /**
@@ -57,6 +58,10 @@ export function DiscoveryBoxSection({ bundles }: { bundles: PublicBundle[] }) {
                   <p className="text-primary-foreground/80 font-sans text-sm">
                     {bundle.bottleCount} {bundle.bottleCount > 1 ? "bouteilles" : "bouteille"}
                   </p>
+                </div>
+
+                <div className="mt-6">
+                  <AddToCartControl type="BUNDLE" id={bundle.id} label={bundle.name} tone="inverted" />
                 </div>
               </div>
 

@@ -2,6 +2,7 @@ import Image from "next/image";
 import { formatCHF } from "@/domain/money";
 import type { PublicWine } from "@/domain/catalog/public-catalog";
 import { Body, H3, Metadata } from "@/components/ui/typography";
+import { AddToCartControl } from "@/components/cart/add-to-cart-control";
 import { PlaceholderBottle } from "./placeholder-bottle";
 import { formatMetadataLine } from "./format-metadata-line";
 import { wineCategoryLabel } from "./wine-category-label";
@@ -75,6 +76,9 @@ export function WineRow({ wine, index }: { wine: PublicWine; index: number }) {
           <Body className="text-foreground/60 mt-2 max-w-sm text-sm italic">{tastingText}</Body>
         ) : null}
         <p className="mt-4 font-sans text-xl font-semibold tabular-nums">{formatCHF(wine.price)}</p>
+        <div className="mt-4">
+          <AddToCartControl type="PRODUCT" id={wine.id} label={wine.name} />
+        </div>
       </div>
     </div>
   );

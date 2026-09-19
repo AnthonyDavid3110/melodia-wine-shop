@@ -3,8 +3,9 @@ import { expect, test } from "@playwright/test";
 
 // Phase 4 Gate 2: focused browser coverage for the real public catalog
 // against the same local Postgres the dev server (playwright.config.ts's
-// webServer) uses. Keeps to the requested scope — no cart/checkout
-// tests, since neither exists yet.
+// webServer) uses. Keeps to the requested scope at the time — no
+// cart/checkout tests, since neither existed yet (cart now has its own
+// suite, e2e/cart.spec.ts, added in Phase 6; checkout still doesn't exist).
 //
 // Several tests here temporarily mutate the shared dev campaign's state
 // (status, campaign_products.active, bundles.active) to exercise the
@@ -46,10 +47,12 @@ test("anonymous visitor can load / and browse the active campaign catalog, no au
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 });
 
-test("no purchase/cart control appears anywhere on the page", async ({ page }) => {
+test("no checkout/order control appears anywhere on the page — cart only, no checkout (Phase 6)", async ({
+  page,
+}) => {
   await page.goto("/");
-  await expect(page.getByRole("button", { name: /ajouter/i })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: /ajouter/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /passer la commande/i })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /passer la commande/i })).toHaveCount(0);
 });
 
 test("missing product images render the editorial placeholder with a meaningful label", async ({

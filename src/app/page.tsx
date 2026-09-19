@@ -10,6 +10,7 @@ import { DeliverySection } from "@/components/public/delivery-section";
 import { EcmSection } from "@/components/public/ecm-section";
 import { PublicFooter } from "@/components/public/footer";
 import { NoActiveCampaignNotice } from "@/components/public/no-active-campaign-notice";
+import { CartCampaignSync } from "@/components/cart/cart-campaign-sync";
 
 /**
  * `getPublicCatalog()` isn't a `fetch()` call, so Next's automatic
@@ -63,7 +64,7 @@ export default async function HomePage() {
   if (catalog.state === "no-active-campaign") {
     return (
       <div className="flex min-h-full flex-1 flex-col">
-        <PublicHeader />
+        <PublicHeader catalog={catalog} />
         <NoActiveCampaignNotice />
         <PublicFooter />
       </div>
@@ -72,7 +73,8 @@ export default async function HomePage() {
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <PublicHeader />
+      <CartCampaignSync campaignId={catalog.campaign.id} />
+      <PublicHeader catalog={catalog} />
       <Hero campaign={catalog.campaign} />
       {catalog.wines.length > 0 ? (
         <WineCollection wines={catalog.wines} />
