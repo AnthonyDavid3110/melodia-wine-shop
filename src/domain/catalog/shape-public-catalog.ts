@@ -90,32 +90,41 @@ function buildWines(rows: readonly CampaignProductRow[]): PublicWine[] {
  * each component's own CampaignProduct.displayOrder, reusing the
  * ordering already resolved for `wines` rather than a separate field.
  */
+/**
+ * The Gate 2 bundle-integrity rule, as a standalone predicate: every
+ * component must resolve to a visible product id, and a bundle with no
+ * items at all is equally invalid. Exported so the Phase 5 admin
+ * readiness check can flag a broken active bundle using the exact same
+ * rule the public catalog enforces, rather than a second
+ * reimplementation that could silently drift from this one.
+ */
+export function isBundleValid(bundle: BundleRow, visibleProductIds: ReadonlySet<string>): boolean {
+  return (
+    bundle.items.length > 0 && bundle.items.every((item) => visibleProductIds.has(item.productId))
+  );
+}
+
 function buildBundles(
   bundleRows: readonly BundleRow[],
   wines: readonly PublicWine[],
 ): PublicBundle[] {
   const wineById = new Map(wines.map((wine) => [wine.id, wine]));
+  const visibleProductIds = new Set(wines.map((wine) => wine.id));
 
   const shaped: PublicBundle[] = [];
 
   for (const bundle of bundleRows) {
-    const resolvedItems: Array<{ item: PublicBundleItem; displayOrder: number }> = [];
-    let valid = bundle.items.length > 0;
+    if (!isBundleValid(bundle, visibleProductIds)) {
+      continue;
+    }
 
+    const resolvedItems: Array<{ item: PublicBundleItem; displayOrder: number }> = [];
     for (const item of bundle.items) {
-      const wine = wineById.get(item.productId);
-      if (!wine) {
-        valid = false;
-        break;
-      }
+      const wine = wineById.get(item.productId)!;
       resolvedItems.push({
         item: { productId: item.productId, name: wine.name, quantity: item.quantity },
         displayOrder: wine.displayOrder,
       });
-    }
-
-    if (!valid) {
-      continue;
     }
 
     resolvedItems.sort((a, b) => a.displayOrder - b.displayOrder);

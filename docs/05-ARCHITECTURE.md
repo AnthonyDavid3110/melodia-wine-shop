@@ -251,6 +251,9 @@ application is French-only.
 Expected routes:
 
     /admin
+    /admin/campagne
+    /admin/campagne/[id]
+    /admin/campagne/[id]/bundles/[bundleId]
     /admin/commandes
     /admin/commandes/[id]
     /admin/produits
@@ -261,11 +264,25 @@ Expected routes:
     /admin/exports
     /admin/parametres
 
+> **Gate 1/2B implementation note (adopted):** `/admin/campagne` was
+> missing from this list in the original spec — added here to match
+> `06-ADMIN-SPEC.md` §44. `/admin/campagne/[id]` is the campaign
+> configuration hub (general fields, CampaignProduct, Bundle summary,
+> CampaignSeller, lifecycle); Bundle administration lives under it
+> (`/admin/campagne/[id]/bundles/...`), scoped to that campaign, never
+> under `/admin/produits`.
+
 Admin pages require authentication.
 
 Authorization must be enforced server-side.
 
 Hiding a button in the UI is not authorization.
+
+Routes only ever navigate to admin surfaces that actually exist for the
+current implementation phase — no placeholder links to not-yet-built
+routes (`/admin/commandes`, `/admin/preparation`, `/admin/paiements`,
+`/admin/statistiques`, `/admin/exports`, `/admin/parametres` are not
+yet built as of Phase 5).
 
 ---
 

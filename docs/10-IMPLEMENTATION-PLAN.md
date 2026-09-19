@@ -788,6 +788,16 @@ Do not block catalogue implementation if final photography is unavailable.
 
 Use replaceable placeholders.
 
+> **Gate 1/2A decision (adopted):** image *upload* is explicitly deferred
+> past Phase 5 Gates 2A/2B. `imageUrl` fields on Product/Bundle remain in
+> the schema and are preserved verbatim by every admin edit form (the
+> field is part of the normal edit form, submitted back unchanged unless
+> the administrator edits it), but no upload UI, no Vercel Blob
+> dependency, and no `next.config.ts` `remotePatterns` were added. The
+> Phase 4 editorial placeholder remains the real behaviour whenever
+> `imageUrl` is absent. Real image management is a later, separate
+> decision once a storage provider is actually configured.
+
 ---
 
 # 40. Phase 5 — Validation
@@ -1888,9 +1898,20 @@ At the time this document is written:
 
 Application implementation:
 
-    NOT STARTED
+    Phase 0   Repository foundation           COMPLETE
+    Phase 1   Design foundation                COMPLETE
+    Phase 2   Database/domain                  COMPLETE
+    Phase 3   Admin authentication              COMPLETE
+    Phase 4   Public catalogue                  COMPLETE
+    Phase 5   Campaign/catalogue administration COMPLETE
+    Phase 6+  Not started
 
-This is intentional.
+Phase 5 covers campaign identity/lifecycle, Product master data,
+CampaignProduct configuration, Bundle administration, Seller master
+data, and CampaignSeller participation — see §38 below for scope and
+the Phase 5 gate reports (1, 2A, 2B, 2C) for what was implemented and
+verified. Reviewed and approved across all gates, including manual
+visual review of the admin UI.
 
 The project was specified before implementation.
 

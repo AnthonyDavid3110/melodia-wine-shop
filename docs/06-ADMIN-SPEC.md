@@ -720,6 +720,8 @@ Confirmation is required.
 Route:
 
     /admin/vendeurs
+    /admin/vendeurs/nouveau
+    /admin/vendeurs/[id]
 
 Displays campaign sellers.
 
@@ -732,6 +734,17 @@ Recommended columns:
     Orders
     To collect
     To remit
+
+> **Gate 1/2B implementation note (adopted):** `/admin/vendeurs` is
+> Seller *master data* (firstName, lastName, active — the actual schema,
+> `04-DATA-MODEL.md` §10; no email/phone/address) — create, edit,
+> deactivate/reactivate, name search for ~70 members. It is independent
+> of any campaign. The Sales/Target/Progress/Orders/To
+> collect/To remit columns above describe the later per-campaign
+> performance view (Phase 7+, once Orders/Settlements exist) — not
+> Gate 2B's master-data list. Campaign-specific participation (which
+> sellers take part in a given campaign, and their target) is configured
+> on `/admin/campagne/[id]` instead — see §9/§44's notes.
 
 ---
 
@@ -873,6 +886,16 @@ Administration manages:
 
 The active campaign context must be visible.
 
+> **Gate 1/2B implementation note (adopted):** `/admin/produits` manages
+> only the reusable Product master library (name, producer, category,
+> vintage, region, grape variety, descriptions, image, master
+> active/inactive) — it is independent of any campaign. Bundles are
+> campaign-scoped and are administered under
+> `/admin/campagne/[id]/bundles/...`, not under `/admin/produits`. There
+> is deliberately no single "active campaign context" banner on
+> `/admin/produits` itself, since Product master data is not
+> campaign-specific (see §44's note on explicit campaign identity).
+
 ---
 
 # 41. Wine management
@@ -891,6 +914,16 @@ Product deletion should not be the normal action.
 Prefer:
 
     deactivate
+
+> **Gate 1/2B implementation note (adopted):** "activate/deactivate for
+> campaign", "set campaign price" and "set display order" are
+> CampaignProduct concerns, configured per campaign under
+> `/admin/campagne/[id]` (§7 of `04-DATA-MODEL.md`) — not on the
+> `/admin/produits` Product editor, which only edits master data and its
+> own global active/inactive flag. A Product's master `active` flag and
+> its per-campaign `CampaignProduct.active` flag are shown distinctly in
+> the campaign editor (never conflated) — a product is publicly visible
+> only when both are true.
 
 ---
 
@@ -914,9 +947,28 @@ Expected fields:
 
 Optional fields may remain empty.
 
+> **Gate 1/2B implementation note (adopted):** "Campaign price" and
+> "Display order" live on the CampaignProduct editor
+> (`/admin/campagne/[id]`), not this Product editor — see §41's note.
+> "Image" stays a preserved `imageUrl` field (no upload UI in V1; see
+> `10-IMPLEMENTATION-PLAN.md` §39).
+>
+> **Gate 2C implementation note (adopted):** `slug` is not an
+> admin-facing field anywhere — not here, not on Campaign, not on
+> Bundle. A slug is generated automatically from the name on create
+> (with a numeric suffix on a naming collision) and preserved unchanged
+> on every later edit; there is no slug editor, advanced or otherwise,
+> in V1. The database's own unique constraint on `slug` is unchanged
+> and remains the authoritative backstop.
+
 ---
 
 # 43. Bundle management
+
+Route:
+
+    /admin/campagne/[id]/bundles/nouveau
+    /admin/campagne/[id]/bundles/[bundleId]
 
 Admin can:
 
@@ -949,8 +1001,7 @@ Example:
 Route:
 
     /admin/campagne
-
-Displays active campaign configuration.
+    /admin/campagne/[id]
 
 Fields:
 
@@ -966,9 +1017,38 @@ Actions:
 
     Activate campaign
     Close sales
+    Reopen (CLOSED -> ACTIVE)
     Archive campaign
 
-Destructive lifecycle changes require confirmation.
+High-consequence lifecycle changes require confirmation.
+
+> **Gate 1/2B implementation note (adopted):** `/admin/campagne` does
+> NOT implicitly resolve to "the current campaign" — there is no such
+> singleton in the admin UI. `/admin/campagne` is a list of every
+> campaign (including CLOSED/ARCHIVED ones, which remain discoverable);
+> `/admin/campagne/[id]` is the complete configuration for one explicit
+> campaign, identified by id, verified server-side on every mutation.
+> `/admin/campagne/[id]` also hosts CampaignProduct configuration,
+> Bundle administration, and CampaignSeller participation — see §7/§8/§9
+> of `04-DATA-MODEL.md` — organized as page sections (identity/status,
+> readiness, general information, wines, bundles, sellers, lifecycle),
+> not as separate routes. Status is never a free-editable field; it only
+> changes through the explicit lifecycle actions above, each recorded in
+> `campaignEvents` (lifecycle-only audit, `04-DATA-MODEL.md` §5a).
+> Editing a normal field on an ACTIVE campaign is allowed and takes
+> effect immediately — the UI warns about this but never blocks it.
+>
+> **Gate 2C implementation note (adopted):** the two dates are plain
+> `jj.mm.aaaa` text fields, not native `<input type="date">`. A native
+> date input's displayed digit order follows the browser/OS locale, not
+> the page's `lang="fr"` attribute, and is not reliably overridable
+> without fragile per-browser CSS/JS — manual review observed a French
+> admin's browser rendering `mm/dd/yyyy`. A plain text field guarantees
+> the correct Swiss French presentation for every admin regardless of
+> browser locale, at the cost of the native calendar popup — an
+> accepted trade-off since both dates remain optional and informational
+> only. The stored representation (`timestamp with timezone`) and
+> server-side date validity checking are unchanged.
 
 ---
 

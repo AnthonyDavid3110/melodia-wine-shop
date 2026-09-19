@@ -225,6 +225,51 @@ Allowed conceptual values:
 - The public site (`/`) always represents the single ACTIVE campaign
   directly — there is no public campaign slug/ID route in V1
   (docs/05-ARCHITECTURE.md §8).
+- V1 status transitions (Phase 5 Gate 1, approved): `DRAFT -> ACTIVE`,
+  `DRAFT -> ARCHIVED`, `ACTIVE -> CLOSED`, `CLOSED -> ACTIVE` (reopen),
+  `CLOSED -> ARCHIVED`. `ARCHIVED` is terminal — no transition out of it
+  in V1. `status` is never a free-editable admin field; every change
+  goes through an explicit lifecycle action, server-side validated
+  against this table.
+
+---
+
+# 5a. CampaignEvent
+
+Records a campaign's lifecycle/status transitions (Phase 5 Gate 1/2A,
+added by drizzle/0003). Deliberately narrow — lifecycle transitions
+only, never a generic field-level audit log. Price, product-visibility,
+bundle, seller and seller-target edits are never recorded here.
+
+## Fields
+
+    id
+    campaignId
+    type
+    adminUserId
+    metadata
+    createdAt
+
+## Type
+
+One of:
+
+    ACTIVATED
+    CLOSED
+    REOPENED
+    ARCHIVED
+
+`CLOSED -> ACTIVE` records `REOPENED`, not `ACTIVATED` — the two are
+distinguished by which transition produced them, not just the resulting
+status.
+
+## Rules
+
+- `campaignId` and `adminUserId` are `RESTRICT` foreign keys, matching
+  `OrderEvent`'s convention (§25 below) — an accidental admin-user
+  delete must never silently erase campaign history.
+- Every campaign lifecycle action inserts exactly one row, in the same
+  transaction as the status change itself.
 
 ---
 
@@ -485,6 +530,15 @@ Seller-specific override:
 
 The exact implementation of default resolution is technical and will be
 defined later.
+
+> **Gate 1/2B implementation note (adopted):** resolution is
+> `CampaignSeller.targetAmount ?? Campaign.defaultSellerTargetAmount`
+> (nullish coalescing, not `||`) — a `0` override is a valid explicit
+> target and is never treated as "empty"; only `null` (never configured)
+> falls back to the campaign default. The admin UI shows both the raw
+> override field and the computed effective target, labelled distinctly
+> (e.g. "Utilise l'objectif par défaut de la campagne" when the override
+> is empty).
 
 ---
 

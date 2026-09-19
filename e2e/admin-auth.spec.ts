@@ -73,7 +73,7 @@ test("anonymous GET /admin is redirected away, never showing protected content",
 }) => {
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/admin\/connexion/);
-  await expect(page.getByText("Espace protégé")).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Administration", level: 1 })).not.toBeVisible();
 });
 
 test("a forged session cookie does not grant access — the DAL, not Proxy, is authoritative", async ({
@@ -95,7 +95,7 @@ test("a forged session cookie does not grant access — the DAL, not Proxy, is a
 
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/admin\/connexion/);
-  await expect(page.getByText("Espace protégé")).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Administration", level: 1 })).not.toBeVisible();
 });
 
 test("public sign-up remains unavailable", async ({ request }) => {
@@ -116,7 +116,7 @@ test("an active linked admin can log in and reach protected admin functionality"
   await page.getByRole("button", { name: "Se connecter" }).click();
 
   await expect(page).toHaveURL(/\/admin$/);
-  await expect(page.getByText("Espace protégé")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Administration", level: 1 })).toBeVisible();
 });
 
 test("an inactive linked admin authenticates but cannot reach protected admin functionality", async ({
@@ -134,7 +134,7 @@ test("an inactive linked admin authenticates but cannot reach protected admin fu
   await page.getByRole("button", { name: "Se connecter" }).click();
 
   await expect(page).toHaveURL(/\/admin\/connexion/);
-  await expect(page.getByText("Espace protégé")).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Administration", level: 1 })).not.toBeVisible();
 });
 
 test("logout invalidates the session — /admin is no longer reachable afterward", async ({
