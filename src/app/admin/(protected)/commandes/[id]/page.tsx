@@ -12,9 +12,15 @@ import {
   paymentMethodLabel,
   sellerSettlementStatusLabel,
 } from "@/domain/orders/order-labels";
+import {
+  canCancelOrder,
+  canMarkCustomerPaymentReceived,
+  canReassignSeller,
+} from "@/domain/orders/order-guards";
 import { CustomerInfoForm } from "./customer-info-form";
 import { SellerAssignment } from "./seller-assignment";
 import { CancelOrderButton } from "./cancel-order-button";
+import { MarkPaymentReceivedButton } from "./mark-payment-received-button";
 
 const EVENT_LABELS: Record<string, string> = {
   ORDER_CREATED: "Commande créée",
@@ -53,12 +59,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             </span>
           </div>
         </div>
-        {order.status !== "CANCELLED" ? (
-          <CancelOrderButton
-            orderId={order.id}
-            alreadyPaid={order.customerPaymentStatus === "PAID"}
-          />
-        ) : null}
+        {canCancelOrder(order) ? <CancelOrderButton orderId={order.id} /> : null}
       </div>
 
       <section className="flex flex-col gap-4">
@@ -84,11 +85,18 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           Actuel :{" "}
           <span className="font-medium">{seller ? formatSellerName(seller) : "Non assigné"}</span>
         </p>
-        <SellerAssignment
-          orderId={order.id}
-          currentSellerId={order.sellerId}
-          sellerOptions={sellerOptions}
-        />
+        {canReassignSeller(order) ? (
+          <SellerAssignment
+            orderId={order.id}
+            currentSellerId={order.sellerId}
+            sellerOptions={sellerOptions}
+          />
+        ) : (
+          <p className="text-muted-foreground text-body-sm font-sans">
+            Le vendeur a déjà remis l&rsquo;argent de cette commande à Mélodia — il ne peut plus
+            être modifié.
+          </p>
+        )}
       </section>
 
       <section className="flex flex-col gap-4">
@@ -160,7 +168,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             </dd>
           </div>
           <div>
-            <dt className="text-muted-foreground font-sans">Règlement au vendeur</dt>
+            <dt className="text-muted-foreground font-sans">Règlement à Mélodia</dt>
             <dd>
               <StatusBadge tone="neutral">
                 {sellerSettlementStatusLabel(order.sellerSettlementStatus)}
@@ -168,6 +176,14 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             </dd>
           </div>
         </dl>
+        {canMarkCustomerPaymentReceived(order) ? (
+          <div>
+            <MarkPaymentReceivedButton
+              orderId={order.id}
+              formattedAmount={formatCHF(money(order.totalAmount))}
+            />
+          </div>
+        ) : null}
       </section>
 
       <section className="flex flex-col gap-3">

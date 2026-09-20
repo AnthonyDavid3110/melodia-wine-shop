@@ -5,17 +5,22 @@ import { createOrder, type CreateOrderInput } from "@/infrastructure/orders/crea
 import {
   InvalidSellerAssignmentError,
   OrderAlreadyCancelledError,
+  OrderNotCancellableError,
+  SellerReassignmentBlockedError,
   assignOrderSeller,
   cancelOrder,
   getOrderDetail,
+  markCustomerPaymentReceived,
   updateOrderCustomerInfo,
 } from "@/infrastructure/orders/orders";
+import { createSettlement } from "@/infrastructure/settlements/settlements";
 import {
   adminUsers,
   campaignProducts,
   campaignSellers,
   campaigns,
   orderEvents,
+  orders,
   products,
   sellers,
 } from "../schema";
@@ -258,6 +263,105 @@ describe("manual orders use the exact same core", () => {
 
       const detail = await getOrderDetail(result.order.id, tx);
       expect(detail?.order.source).toBe("MANUAL");
+    });
+  });
+});
+
+describe("cancelOrder — Phase 8 financial guard", () => {
+  it("still allows cancelling an ordinary PENDING/PENDING order", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const admin = await setupAdmin(tx);
+      const order = await createTestOrder(tx, campaign.id, product.id);
+
+      const cancelled = await cancelOrder(order.id, admin.id, tx);
+      expect(cancelled.status).toBe("CANCELLED");
+    });
+  });
+
+  it("blocks cancelling once the customer has paid", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const admin = await setupAdmin(tx);
+      const order = await createTestOrder(tx, campaign.id, product.id);
+      await markCustomerPaymentReceived(order.id, admin.id, tx);
+
+      await expect(cancelOrder(order.id, admin.id, tx)).rejects.toThrow(OrderNotCancellableError);
+
+      const [refetched] = await tx.select().from(orders).where(eq(orders.id, order.id));
+      expect(refetched?.status).not.toBe("CANCELLED");
+    });
+  });
+
+  it("blocks cancelling once the seller has settled", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const seller = await setupSeller(tx, campaign.id);
+      const admin = await setupAdmin(tx);
+      const order = await createTestOrder(tx, campaign.id, product.id, { sellerId: seller.id });
+      await markCustomerPaymentReceived(order.id, admin.id, tx);
+      await createSettlement(
+        { campaignId: campaign.id, sellerId: seller.id, orderIds: [order.id], adminId: admin.id },
+        tx,
+      );
+
+      await expect(cancelOrder(order.id, admin.id, tx)).rejects.toThrow(OrderNotCancellableError);
+    });
+  });
+});
+
+describe("assignOrderSeller — Phase 8 financial guard", () => {
+  it("still allows reassignment for a PENDING payment / PENDING settlement order", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const seller = await setupSeller(tx, campaign.id);
+      const admin = await setupAdmin(tx);
+      const order = await createTestOrder(tx, campaign.id, product.id);
+
+      const updated = await assignOrderSeller(order.id, seller.id, admin.id, tx);
+      expect(updated.sellerId).toBe(seller.id);
+    });
+  });
+
+  it("still allows reassignment for a PAID payment / PENDING settlement order", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const sellerA = await setupSeller(tx, campaign.id);
+      const sellerB = await setupSeller(tx, campaign.id);
+      const admin = await setupAdmin(tx);
+      const order = await createTestOrder(tx, campaign.id, product.id, { sellerId: sellerA.id });
+      await markCustomerPaymentReceived(order.id, admin.id, tx);
+
+      const updated = await assignOrderSeller(order.id, sellerB.id, admin.id, tx);
+      expect(updated.sellerId).toBe(sellerB.id);
+    });
+  });
+
+  it("blocks reassignment once the order is included in a completed settlement", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const sellerA = await setupSeller(tx, campaign.id);
+      const sellerB = await setupSeller(tx, campaign.id);
+      const admin = await setupAdmin(tx);
+      const order = await createTestOrder(tx, campaign.id, product.id, { sellerId: sellerA.id });
+      await markCustomerPaymentReceived(order.id, admin.id, tx);
+      await createSettlement(
+        { campaignId: campaign.id, sellerId: sellerA.id, orderIds: [order.id], adminId: admin.id },
+        tx,
+      );
+
+      await expect(assignOrderSeller(order.id, sellerB.id, admin.id, tx)).rejects.toThrow(
+        SellerReassignmentBlockedError,
+      );
+
+      const [refetched] = await tx.select().from(orders).where(eq(orders.id, order.id));
+      expect(refetched?.sellerId).toBe(sellerA.id);
     });
   });
 });

@@ -185,6 +185,15 @@ Seller attribution can be changed by an administrator.
 
 Changes must not alter the order's monetary total.
 
+**Phase 8 addition:** reassignment is blocked once
+`sellerSettlementStatus = SETTLED` — a completed settlement is a
+historical record of which seller remitted the money, and reassigning
+the order afterward would make the order's live seller disagree with
+that history. Reassignment remains freely allowed while payment is
+`PENDING` or once it is `PAID` but not yet settled. Enforced
+server-side (`SellerReassignmentBlockedError`), never merely by hiding
+the control in the UI.
+
 ## BR-SEL-006 — Seller sales contribute toward campaign objective
 
 The total value of eligible orders attributed to a seller contributes
@@ -382,15 +391,20 @@ For each seller, the system must provide at least:
 The application should make it possible to determine how much money each
 seller is responsible for collecting/remitting.
 
-### TBD
+**RESOLVED (Phase 8):** no separate `REMITTED_TO_TREASURER` order-level
+state was needed. The implemented model is exactly the one
+`TBD-BR-001` already recommended:
 
-Whether V1 requires a separate:
+- `Order.customerPaymentStatus` (`PENDING`/`PAID`/`REFUNDED`) — customer
+  → seller;
+- `Order.sellerSettlementStatus` (`NOT_APPLICABLE`/`PENDING`/`SETTLED`)
+  — operational summary of seller → ECM, derived from the record below;
+- a `SellerSettlement` record (docs/04-DATA-MODEL.md §21/§22) — the
+  actual seller → ECM remittance event, grouping the specific orders it
+  covers, with its own amount/timestamp/recording administrator.
 
-`REMITTED_TO_TREASURER`
-
-state in addition to customer payment status remains to be decided.
-
-This must be resolved before implementing seller financial reconciliation.
+See docs/05-ARCHITECTURE.md §20/§21 and docs/08-PAYMENTS.md §34-§39 for
+the full implemented mechanics.
 
 ---
 
@@ -534,6 +548,19 @@ Cancelling an online-paid order does not automatically imply that the
 payment has already been refunded.
 
 Cancellation state and refund/payment state remain distinguishable.
+
+## BR-CAN-004 — Paid or settled orders cannot currently be cancelled
+
+**Phase 8 addition:** cancellation is blocked entirely once
+`customerPaymentStatus = PAID` or `sellerSettlementStatus = SETTLED` —
+once money has moved, cancelling through the ordinary admin workflow
+would leave stale financial state attached to a cancelled order rather
+than reflect it accurately. No automatic refund, payment reversal, or
+settlement reversal is performed or implied. A future reversal/refund
+workflow is required to cancel such an order; it does not exist yet.
+Enforced server-side (`OrderNotCancellableError`), never merely by
+hiding the control in the UI. An ordinary `PENDING` payment order
+remains freely cancellable, unchanged from Phase 7.
 
 ---
 
@@ -695,7 +722,7 @@ Every administrative mutation requires server-side authorization.
 
 # 27. Open business-rule decisions
 
-## TBD-BR-001 — Seller → treasurer reconciliation
+## TBD-BR-001 — Seller → treasurer reconciliation — RESOLVED (Phase 8)
 
 Question:
 
@@ -711,6 +738,10 @@ Recommended model:
 `sellerSettlementStatus`
 
 This would make reconciliation significantly safer.
+
+**Resolution:** yes — implemented exactly as recommended, plus a
+`SellerSettlement`/`SellerSettlementOrder` record pair (see BR-COL-003
+above) as the actual remittance event, not just a status flag.
 
 ## TBD-BR-002 — Editing already-paid online orders
 

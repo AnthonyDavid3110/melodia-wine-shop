@@ -12,14 +12,14 @@ import {
 } from "@/components/ui/dialog";
 import { cancelOrderAction, type CancelOrderState } from "./actions";
 
-/** Explicit-confirmation cancellation (Phase 7 §20, BR-CAN-001) — same Dialog pattern as campaign lifecycle transitions. */
-export function CancelOrderButton({
-  orderId,
-  alreadyPaid,
-}: {
-  orderId: string;
-  alreadyPaid: boolean;
-}) {
+/**
+ * Explicit-confirmation cancellation (Phase 7 §20, BR-CAN-001) — same
+ * Dialog pattern as campaign lifecycle transitions. The caller only
+ * renders this once `canCancelOrder(order)` holds (Phase 8), so a paid
+ * or settled order never reaches this component — nothing extra to
+ * warn about beyond the ordinary consequences below.
+ */
+export function CancelOrderButton({ orderId }: { orderId: string }) {
   const [open, setOpen] = useState(false);
   const action = cancelOrderAction.bind(null, orderId);
   const [state, formAction, isPending] = useActionState<CancelOrderState, FormData>(action, {});
@@ -44,12 +44,6 @@ export function CancelOrderButton({
             Cette commande sera exclue du chiffre d&rsquo;affaires actif, des besoins en bouteilles,
             de la préparation et de l&rsquo;objectif du vendeur. Elle reste consultable, jamais
             supprimée.
-            {alreadyPaid ? (
-              <span className="text-warning mt-2 block font-medium">
-                Cette commande a déjà été payée. L&rsquo;annulation n&rsquo;implique pas
-                automatiquement un remboursement — cela reste à traiter séparément.
-              </span>
-            ) : null}
           </DialogDescription>
         </DialogHeader>
         {state.formError ? (

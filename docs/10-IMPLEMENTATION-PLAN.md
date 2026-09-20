@@ -1948,7 +1948,8 @@ Application implementation:
     Phase 5   Campaign/catalogue administration COMPLETE
     Phase 6   Customer cart                     COMPLETE
     Phase 7   Checkout and order administration COMPLETE
-    Phase 8+  Not started
+    Phase 8   Offline payment and seller workflows COMPLETE
+    Phase 9+  Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master
@@ -1975,6 +1976,25 @@ settlement, preparation/fulfilment status transitions beyond creation,
 refunds, and everything else listed as a later-phase concern in the
 Phase 7 implementation gate. Checkout trust boundary and order-creation
 transaction are documented concretely in `05-ARCHITECTURE.md` §20/§21.
+
+Phase 8 covers the offline money flow end to end: marking a customer's
+seller-payment order as paid (`markCustomerPaymentReceived()`,
+`payments`/`orders.customerPaymentStatus` updated atomically), and
+seller → ECM settlement (`createSettlement()`, authoritative
+server-derived amount, all-or-nothing across every selected order, the
+pre-existing `seller_settlement_orders_order_id_unique` constraint as
+the final concurrency backstop). Reuses the Phase 2 pure calculators
+(`calculateSellerSales`, `calculateSellerCollections`,
+`calculateSellerProgress`, `calculateSettlementAmount`,
+`isEligibleForSettlement`) unchanged apart from adding the CANCELLED
+guard to the last one. Tightens two Phase 7 mutations once financial
+state becomes reachable: cancellation is blocked once
+`customerPaymentStatus = PAID` or `sellerSettlementStatus = SETTLED`,
+and seller reassignment is blocked once `sellerSettlementStatus =
+SETTLED` — see BR-CAN-004/BR-SEL-005 in `02-BUSINESS-RULES.md`. No
+migration was required — every column already existed. No
+`/admin/paiements` dashboard, no Worldline/TWINT/card, no refunds; see
+§56 above for the full non-goal list.
 
 The project was specified before implementation.
 

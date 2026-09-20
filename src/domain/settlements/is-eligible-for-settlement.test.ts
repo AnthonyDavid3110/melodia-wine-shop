@@ -9,6 +9,7 @@ const base: SettlementEligibilityOrderInput = {
   customerPaymentStatus: "PAID",
   sellerId: "seller-1",
   alreadySettled: false,
+  orderStatus: "CONFIRMED",
 };
 
 describe("isEligibleForSettlement", () => {
@@ -35,5 +36,9 @@ describe("isEligibleForSettlement", () => {
 
   it("is not eligible for a refunded order", () => {
     expect(isEligibleForSettlement({ ...base, customerPaymentStatus: "REFUNDED" })).toBe(false);
+  });
+
+  it("is not eligible for a cancelled order, even if it was paid before cancellation (Phase 8)", () => {
+    expect(isEligibleForSettlement({ ...base, orderStatus: "CANCELLED" })).toBe(false);
   });
 });

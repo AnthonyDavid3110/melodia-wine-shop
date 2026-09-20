@@ -9,6 +9,13 @@ import {
   setSellerActive,
   updateSeller,
 } from "@/infrastructure/sellers/sellers";
+import {
+  EmptySettlementSelectionError,
+  InvalidSettlementOrderError,
+  SettlementConflictError,
+  createSettlement,
+} from "@/infrastructure/settlements/settlements";
+import { CampaignNotFoundError } from "@/infrastructure/campaign/campaigns";
 import { sellerFormSchema, type SellerFormValues } from "./schema";
 
 export interface SellerFormState {
@@ -66,4 +73,42 @@ export async function setSellerActiveAction(id: string, active: boolean) {
   await setSellerActive(id, active);
   revalidatePath("/admin/vendeurs");
   revalidatePath(`/admin/vendeurs/${id}`);
+}
+
+export interface CreateSettlementState {
+  formError?: string;
+}
+
+/**
+ * Seller → ECM half of Phase 8's offline money flow (docs/06 §38-39).
+ * Called directly (not `useActionState`-bound) since it takes a
+ * structured order-id array, matching `assignOrderSellerAction`'s
+ * convention in the order-detail flow. The server re-derives the
+ * authoritative amount and re-validates every selected order — a
+ * client-shown running total is preview-only.
+ */
+export async function createSettlementAction(
+  sellerId: string,
+  campaignId: string,
+  orderIds: string[],
+): Promise<CreateSettlementState> {
+  const admin = await requireAdmin();
+
+  try {
+    await createSettlement({ campaignId, sellerId, orderIds, adminId: admin.adminId });
+  } catch (error) {
+    if (
+      error instanceof EmptySettlementSelectionError ||
+      error instanceof InvalidSettlementOrderError ||
+      error instanceof SettlementConflictError ||
+      error instanceof CampaignNotFoundError ||
+      error instanceof SellerNotFoundError
+    ) {
+      return { formError: error.message };
+    }
+    throw error;
+  }
+
+  revalidatePath(`/admin/vendeurs/${sellerId}`);
+  return {};
 }

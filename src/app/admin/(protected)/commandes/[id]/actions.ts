@@ -6,9 +6,13 @@ import { customerInfoSchema } from "@/domain/orders/order-input-schema";
 import {
   InvalidSellerAssignmentError,
   OrderAlreadyCancelledError,
+  OrderNotCancellableError,
   OrderNotFoundError,
+  OrderNotPayableError,
+  SellerReassignmentBlockedError,
   assignOrderSeller,
   cancelOrder,
+  markCustomerPaymentReceived,
   updateOrderCustomerInfo,
 } from "@/infrastructure/orders/orders";
 
@@ -61,7 +65,11 @@ export async function assignOrderSellerAction(
   try {
     await assignOrderSeller(orderId, sellerId, admin.adminId);
   } catch (error) {
-    if (error instanceof OrderNotFoundError || error instanceof InvalidSellerAssignmentError) {
+    if (
+      error instanceof OrderNotFoundError ||
+      error instanceof InvalidSellerAssignmentError ||
+      error instanceof SellerReassignmentBlockedError
+    ) {
       return { formError: error.message };
     }
     throw error;
@@ -86,7 +94,42 @@ export async function cancelOrderAction(
   try {
     await cancelOrder(orderId, admin.adminId);
   } catch (error) {
-    if (error instanceof OrderNotFoundError || error instanceof OrderAlreadyCancelledError) {
+    if (
+      error instanceof OrderNotFoundError ||
+      error instanceof OrderAlreadyCancelledError ||
+      error instanceof OrderNotCancellableError
+    ) {
+      return { formError: error.message };
+    }
+    throw error;
+  }
+
+  revalidatePath(`/admin/commandes/${orderId}`);
+  revalidatePath("/admin/commandes");
+  return {};
+}
+
+export interface MarkPaymentReceivedState {
+  formError?: string;
+}
+
+/**
+ * Customer → seller half of Phase 8's offline money flow. Requires
+ * explicit confirmation in the UI (docs/09-SECURITY.md §64) — this
+ * action itself only enforces the guard server-side; hiding the button
+ * is not the authorization boundary.
+ */
+export async function markCustomerPaymentReceivedAction(
+  orderId: string,
+  _prevState: MarkPaymentReceivedState,
+  _formData: FormData,
+): Promise<MarkPaymentReceivedState> {
+  const admin = await requireAdmin();
+
+  try {
+    await markCustomerPaymentReceived(orderId, admin.adminId);
+  } catch (error) {
+    if (error instanceof OrderNotFoundError || error instanceof OrderNotPayableError) {
       return { formError: error.message };
     }
     throw error;

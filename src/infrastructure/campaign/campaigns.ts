@@ -4,6 +4,7 @@ import {
   isValidCampaignTransition,
   type CampaignStatus,
 } from "@/domain/campaign/campaign-status";
+import { resolveActiveCampaign } from "@/domain/catalog/resolve-active-campaign";
 import { db } from "../database/client";
 import { campaignEvents, campaigns } from "../database/schema";
 
@@ -60,6 +61,23 @@ export async function listCampaigns(dbHandle: DbHandle = db) {
 export async function getCampaign(id: string, dbHandle: DbHandle = db) {
   const [campaign] = await dbHandle.select().from(campaigns).where(eq(campaigns.id, id));
   return campaign ?? null;
+}
+
+/**
+ * The single ACTIVE campaign, or `null` if none — same
+ * `resolveActiveCampaign` invariant check `get-public-catalog.ts` uses
+ * (throws if the `campaigns_one_active_idx` DB invariant were ever
+ * violated, never silently picks one). Phase 8's seller-detail page
+ * uses this to default its campaign context explicitly and safely
+ * (Phase 8 §18) — never an implicit/unscoped aggregate across every
+ * campaign a seller has ever participated in.
+ */
+export async function getActiveCampaign(dbHandle: DbHandle = db) {
+  const activeCampaigns = await dbHandle
+    .select()
+    .from(campaigns)
+    .where(eq(campaigns.status, "ACTIVE"));
+  return resolveActiveCampaign(activeCampaigns);
 }
 
 /** Backs `generateUniqueSlug` (Gate 2C §6) — the admin never types a slug. */

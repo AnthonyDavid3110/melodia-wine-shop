@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../database/client";
 import {
   orderBundleComponents,
@@ -9,6 +9,11 @@ import {
   sellers,
 } from "../database/schema";
 import { listActiveCampaignSellers } from "../campaign/campaign-sellers";
+import {
+  canCancelOrder,
+  canMarkCustomerPaymentReceived,
+  canReassignSeller,
+} from "@/domain/orders/order-guards";
 
 type DbHandle = Pick<typeof db, "select" | "update" | "transaction">;
 
@@ -30,6 +35,34 @@ export class OrderAlreadyCancelledError extends Error {
   constructor() {
     super("Cette commande est déjà annulée.");
     this.name = "OrderAlreadyCancelledError";
+  }
+}
+
+/** Phase 8 approved decision #2 — cancellation blocked once money has moved (BR-CAN, docs/09-SECURITY.md §67). */
+export class OrderNotCancellableError extends Error {
+  constructor() {
+    super(
+      "Cette commande a déjà été payée ou réglée à Mélodia et ne peut pas être annulée depuis ce flux. Un futur processus d'annulation financière sera nécessaire.",
+    );
+    this.name = "OrderNotCancellableError";
+  }
+}
+
+/** Phase 8 approved decision #1 — reassignment blocked once a completed settlement already reflects the current seller. */
+export class SellerReassignmentBlockedError extends Error {
+  constructor() {
+    super(
+      "Le vendeur de cette commande a déjà remis l'argent à Mélodia dans un règlement finalisé et ne peut plus être modifié.",
+    );
+    this.name = "SellerReassignmentBlockedError";
+  }
+}
+
+/** Phase 8 mark-payment-received guard failure — covers not-found-payment, wrong method, already-paid, and cancelled cases with one clean admin-facing message. */
+export class OrderNotPayableError extends Error {
+  constructor() {
+    super("Le paiement de cette commande ne peut pas être marqué comme reçu actuellement.");
+    this.name = "OrderNotPayableError";
   }
 }
 
@@ -151,6 +184,10 @@ export async function assignOrderSeller(
       throw new OrderNotFoundError(id);
     }
 
+    if (!canReassignSeller(existing)) {
+      throw new SellerReassignmentBlockedError();
+    }
+
     if (sellerId) {
       const eligible = await listActiveCampaignSellers(existing.campaignId, tx);
       if (!eligible.some((seller) => seller.id === sellerId)) {
@@ -189,15 +226,14 @@ export async function assignOrderSeller(
 }
 
 /**
- * Cancels an order (Phase 7 §20, BR-CAN-001/002). Never deletes the
- * row. Phase 7's only invalid-transition case is cancelling an
- * already-cancelled order — every Phase-7-created order otherwise sits
- * at CONFIRMED (no PREPARED/HANDED_TO_SELLER/DELIVERED transitions
- * exist yet, those are Phase 9), so there is no richer state machine to
- * validate against here. Does NOT touch payment/settlement state — if
- * a paid order is later cancelled, resolving the resulting refund is
- * explicitly a future phase's concern (Phase 7 §20 instruction), never
- * silently implied by this function.
+ * Cancels an order (Phase 7 §20, BR-CAN-001/002; tightened in Phase 8).
+ * Never deletes the row. Once money has moved — `customerPaymentStatus
+ * = PAID` or `sellerSettlementStatus = SETTLED` — cancellation is
+ * blocked entirely rather than silently leaving stale financial state
+ * attached to a cancelled order; a future reversal/refund workflow is
+ * required for that case, never invented here (Phase 8 approved
+ * decision #2). `canCancelOrder` is the single source of truth for this
+ * rule, shared with the UI's own visibility check.
  */
 export async function cancelOrder(id: string, adminUserId: string, dbHandle: DbHandle = db) {
   return dbHandle.transaction(async (tx) => {
@@ -207,6 +243,9 @@ export async function cancelOrder(id: string, adminUserId: string, dbHandle: DbH
     }
     if (existing.status === "CANCELLED") {
       throw new OrderAlreadyCancelledError();
+    }
+    if (!canCancelOrder(existing)) {
+      throw new OrderNotCancellableError();
     }
 
     const [updated] = await tx
@@ -218,6 +257,68 @@ export async function cancelOrder(id: string, adminUserId: string, dbHandle: DbH
     await tx.insert(orderEvents).values({
       orderId: id,
       type: "ORDER_CANCELLED",
+      actorType: "ADMIN",
+      adminUserId,
+    });
+
+    return updated!;
+  });
+}
+
+/**
+ * The customer → seller half of Phase 8's offline money flow
+ * (docs/04-DATA-MODEL.md §20, docs/08-PAYMENTS.md §31-32). Updates the
+ * order's SELLER/OFFLINE `Payment` row and `Order.customerPaymentStatus`
+ * atomically in one transaction — these must never drift apart. Never
+ * touches a TWINT/CARD payment: the method check keeps this action
+ * completely isolated from the future online-payment path, which will
+ * be confirmed only through trusted provider callbacks (BR-PAY-006),
+ * never through this admin action.
+ *
+ * A repeat call (double click, retry) is a clean, safe no-op-as-
+ * rejection: `canMarkCustomerPaymentReceived` fails once
+ * `customerPaymentStatus` is no longer PENDING, so a second invocation
+ * throws the same typed `OrderNotPayableError` rather than creating a
+ * second Payment row, re-setting `paidAt`, or writing a duplicate
+ * event.
+ */
+export async function markCustomerPaymentReceived(
+  id: string,
+  adminUserId: string,
+  dbHandle: DbHandle = db,
+) {
+  return dbHandle.transaction(async (tx) => {
+    const [existing] = await tx.select().from(orders).where(eq(orders.id, id));
+    if (!existing) {
+      throw new OrderNotFoundError(id);
+    }
+    if (!canMarkCustomerPaymentReceived(existing)) {
+      throw new OrderNotPayableError();
+    }
+
+    const [payment] = await tx
+      .select()
+      .from(payments)
+      .where(and(eq(payments.orderId, id), eq(payments.method, "SELLER")));
+    if (!payment || payment.status !== "PENDING") {
+      throw new OrderNotPayableError();
+    }
+
+    const now = new Date();
+    await tx
+      .update(payments)
+      .set({ status: "SUCCEEDED", paidAt: now })
+      .where(eq(payments.id, payment.id));
+
+    const [updated] = await tx
+      .update(orders)
+      .set({ customerPaymentStatus: "PAID" })
+      .where(eq(orders.id, id))
+      .returning();
+
+    await tx.insert(orderEvents).values({
+      orderId: id,
+      type: "CUSTOMER_PAYMENT_MARKED_PAID",
       actorType: "ADMIN",
       adminUserId,
     });
