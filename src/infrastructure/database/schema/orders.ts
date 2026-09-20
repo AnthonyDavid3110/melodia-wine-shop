@@ -1,4 +1,14 @@
-import { check, index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { idColumn, timestampColumns } from "./columns.helpers";
 import { campaigns } from "./campaigns";
@@ -29,6 +39,21 @@ export const orders = pgTable(
     id: idColumn(),
     /** Human-readable ECM-YYYY-NNNN, generated via orderNumberCounters — never the primary key. */
     orderNumber: text("order_number").notNull().unique(),
+    /**
+     * Phase 7 duplicate-submission guard (docs/04-DATA-MODEL.md §14a).
+     * One client-generated token per logical creation attempt — the
+     * SAME token resubmitted (double click, network retry, browser
+     * retry) must resolve to the ONE order already created for it,
+     * never a second one. Nullable because it is meaningless for any
+     * future write path that doesn't go through the shared
+     * order-creation core with a caller-supplied token; every order
+     * created through that core (ONLINE checkout and MANUAL entry
+     * alike) always sets one. Uniqueness is the actual correctness
+     * boundary a race relies on — see `createOrder`'s advisory-lock +
+     * unique-violation-recovery handling in
+     * `src/infrastructure/orders/create-order.ts`.
+     */
+    idempotencyKey: text("idempotency_key"),
     campaignId: uuid("campaign_id")
       .notNull()
       .references(() => campaigns.id, { onDelete: "restrict" }),
@@ -69,6 +94,7 @@ export const orders = pgTable(
   (table) => [
     check("orders_subtotal_amount_non_negative", sql`${table.subtotalAmount} >= 0`),
     check("orders_total_amount_non_negative", sql`${table.totalAmount} >= 0`),
+    unique("orders_idempotency_key_unique").on(table.idempotencyKey),
     index("orders_campaign_id_idx").on(table.campaignId),
     index("orders_seller_id_idx").on(table.sellerId),
     index("orders_status_idx").on(table.status),

@@ -571,6 +571,9 @@ Order is the central business entity.
     id
     orderNumber
     campaignId
+    idempotencyKey
+
+See §14a for `idempotencyKey`.
 
 ## Source
 
@@ -693,6 +696,48 @@ It is not the database primary key.
 - safe under concurrent order creation.
 
 Exact sequence generation is defined during implementation.
+
+---
+
+# 14a. Idempotency key (Phase 7, adopted)
+
+    idempotencyKey
+
+A caller-generated token (UUID) identifying one logical order-creation
+attempt — the same token resubmitted (double click, network retry,
+browser retry) must resolve to the ONE order already created for it,
+never a second one.
+
+## Fields
+
+- nullable text column on Order, `unique` when present (Postgres treats
+  multiple `NULL`s as distinct, so this never blocks any write path that
+  doesn't supply one);
+- generated once per logical creation attempt — for ONLINE checkout,
+  once when the checkout page mounts, reused across retries of that
+  same attempt; for MANUAL entry, once when the admin form is submitted.
+
+## Requirements
+
+- enforced server-side, never trusted as a claim about the request's
+  outcome — the database `UNIQUE` constraint is the actual correctness
+  boundary, not application-level "check then insert" logic, which is
+  independently raceable;
+- the order-creation transaction resolves the same token to the same
+  Order on any repeat submission, rather than creating (or attempting
+  to create) a second row;
+- a genuinely new order always uses a newly generated token.
+
+## Implementation note
+
+A Postgres advisory transaction lock keyed on the token serializes
+concurrent submissions sharing the same token, so the common case
+(sequential retry, or a genuine race) resolves without wasting an order
+number: the losing caller blocks until the winner commits, then finds
+the already-created row. The lock is a gap-avoidance optimization, not
+the correctness mechanism — the `UNIQUE` constraint on `idempotencyKey`
+is what actually guarantees at most one Order per token even if the
+lock is ever bypassed.
 
 ---
 

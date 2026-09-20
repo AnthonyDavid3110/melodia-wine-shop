@@ -356,9 +356,17 @@ Example:
 
 The payment provider may redirect the browser to a success URL.
 
-Example conceptually:
-
-    /commande/confirmation/ECM-2026-0042
+**DECIDED (docs/03-USER-FLOWS.md §18, Phase 7):** that URL must NOT be
+addressed by the bare public order number alone (`09-SECURITY.md`
+§22/§23 — a public order number is not itself a secret, so a route
+keyed only by it must not expose full customer information to anyone
+who can guess or enumerate it). Since this page genuinely must be a
+real, reloadable URL the PSP redirects a real browser to (unlike Phase
+7's seller-payment confirmation, which never needs to survive a
+redirect), it requires an opaque, unguessable access token in the URL
+instead of — or in addition to — the order number; the exact token
+mechanism belongs to the online-payment phase's own implementation
+gate, not this document.
 
 This page must not execute:
 

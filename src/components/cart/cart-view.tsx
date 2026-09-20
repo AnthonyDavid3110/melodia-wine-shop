@@ -132,18 +132,9 @@ export function CartView({ catalog }: { catalog: PublicCatalog }) {
             <Link href="/" className="font-sans text-sm underline-offset-2 hover:underline">
               Continuer mes achats
             </Link>
-            <div className="flex flex-col items-end gap-1.5">
-              <Button
-                type="button"
-                size="lg"
-                disabled
-                aria-disabled="true"
-                className="w-full sm:w-auto"
-              >
-                Passer la commande
-              </Button>
-              <Metadata>Disponible prochainement</Metadata>
-            </div>
+            <Button asChild size="lg" className="w-full sm:w-auto">
+              <Link href="/commande">Passer la commande</Link>
+            </Button>
           </div>
         </div>
       ) : (

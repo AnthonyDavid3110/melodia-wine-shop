@@ -479,6 +479,22 @@ for:
 
 # 18. Flow — Order confirmation
 
+**DECIDED (Phase 7):** the confirmation is NOT a permanently public,
+order-number-addressable route (resolves a contradiction with an
+earlier illustrative `/commande/confirmation/ECM-2026-0042`-style URL
+sketched in `08-PAYMENTS.md` §17 in favor of the security model —
+`09-SECURITY.md` §22/§23 already required this: a public order number
+is not a secret, so a route addressed by it alone must not expose full
+customer information). Phase 7's actual implementation: the
+order-creation Server Action returns the confirmation data directly to
+the client component that called it, which renders it in place —
+nothing is fetched from a URL any other visitor could construct or
+guess. A page refresh loses this view in V1 (no durable, secure
+customer-facing order lookup exists yet, and no email exists yet to
+re-deliver it); this is an accepted V1 tradeoff, not an oversight. A
+future phase that adds durable confirmation/order-tracking access
+requires its own secure mechanism, not a bare order-number URL.
+
 The confirmation page displays at minimum:
 
 - success state;

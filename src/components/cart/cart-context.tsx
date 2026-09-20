@@ -48,6 +48,15 @@ interface CartContextValue {
   setItemQuantity: (type: CartItemType, id: string, quantity: number) => void;
   removeItem: (type: CartItemType, id: string) => void;
   resetForCampaign: (campaignId: string) => void;
+  /**
+   * Phase 7 §15: cleared ONLY once a Server Action confirms the
+   * transaction actually created (or idempotently recovered) the
+   * intended order — never on submit-click. Keeps the cart's own
+   * `campaignId`, only empties `items` — there is no reason to forget
+   * which campaign this session belongs to just because a purchase
+   * completed.
+   */
+  clearCart: () => void;
 }
 
 const CartContext = React.createContext<CartContextValue | null>(null);
@@ -129,9 +138,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setCart((current) => reconcileCartCampaign(current, campaignId));
   }, []);
 
+  const clearCart = React.useCallback(() => {
+    setCart((current) => createEmptyCart(current.campaignId));
+  }, []);
+
   const value = React.useMemo<CartContextValue>(
-    () => ({ cart, hydrated, addItem, setItemQuantity, removeItem, resetForCampaign }),
-    [cart, hydrated, addItem, setItemQuantity, removeItem, resetForCampaign],
+    () => ({ cart, hydrated, addItem, setItemQuantity, removeItem, resetForCampaign, clearCart }),
+    [cart, hydrated, addItem, setItemQuantity, removeItem, resetForCampaign, clearCart],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

@@ -630,13 +630,7 @@ silently destroys a returning customer's real cart.
 
 # 20. Checkout trust boundary
 
-Applies from Phase 7 onward, once checkout exists and a cart is
-actually submitted to the server. In Phase 6 (cart only, see §19) no
-request carries a cart at all, so nothing here is exercised yet — it is
-recorded now so Phase 7 has a fixed target rather than inventing the
-boundary under implementation pressure.
-
-The browser may submit:
+Implemented in Phase 7. The browser may submit:
 
     productId
     quantity
@@ -655,6 +649,24 @@ The browser must NOT be trusted to submit authoritative:
     fulfilment status
 
 Server-side business logic determines those values.
+
+## Phase 7 implementation (adopted)
+
+`/commande`'s client leaf reads the hydrated Phase 6 cart and calls a
+Server Action directly with a plain structured payload — items
+(`type`/`id`/`quantity` only), customer fields, an optional `sellerId`,
+the cart's own `campaignId` (for staleness detection), and a
+client-generated `idempotencyKey` (§14a). No price ever appears in that
+payload; there is no field for one to occupy. The action re-validates
+every field with the same Zod schema used by `/admin/commandes/nouvelle`
+(`domain/orders/order-input-schema.ts`) — one schema, one
+`createOrder()` core (`infrastructure/orders/create-order.ts`), for
+ONLINE and MANUAL alike (docs/10 §48's "SAME order-creation core").
+
+Payment method is fixed to seller/offline for Phase 7 — TWINT/card are
+not offered anywhere in the UI (no PSP integration exists yet), so
+there is no payment-method trust boundary to enforce beyond "no other
+method exists to submit."
 
 ---
 
@@ -683,6 +695,30 @@ Conceptually:
 
 A partially created commercial order must not be left behind because one
 database operation failed.
+
+## Phase 7 implementation (adopted)
+
+`createOrder()` (`infrastructure/orders/create-order.ts`) is exactly
+this pipeline, in one `db.transaction()`: acquire a Postgres advisory
+lock on the idempotency key (§14a) → return the existing Order
+immediately if that key was already used → resolve the active campaign
+and reject a stale/mismatched one → resolve every submitted line
+against the live catalog, rejecting the whole submission if any single
+line is unavailable (never a partial order) → revalidate the seller,
+if any, against currently-eligible `CampaignSeller`s → calculate
+authoritative totals → reserve the order number (`reserveOrderNumber`,
+already built in Phase 2) → insert Order/OrderItems/
+OrderBundleComponents/Payment/OrderEvent. `reserveOrderNumber`'s
+increment is plain transactional table DML, not a non-transactional
+sequence, so a rollback anywhere in this pipeline also rolls back the
+number reservation — confirmed by a dedicated DB test
+(`create-order.db.test.ts`).
+
+A freshly created Phase 7 order is `status: CONFIRMED` (nothing external
+blocks it — that state is reserved for a future online-payment order
+still awaiting provider confirmation), `customerPaymentStatus: PENDING`,
+`sellerSettlementStatus: PENDING`, with one `Payment` row
+(`method: SELLER, provider: OFFLINE, status: PENDING`).
 
 ---
 

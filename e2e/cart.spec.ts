@@ -56,10 +56,8 @@ test("customer can add a wine and a bundle, review /panier, adjust quantities, a
   await expect(page.getByText("CHF 54.–", { exact: true })).toHaveCount(2); // 3*18, line + total
   await expect(page.getByRole("link", { name: "Panier, 3 articles" })).toBeVisible();
 
-  // Checkout is intentionally disabled in Phase 6 — cart only, no order creation.
-  const checkoutButton = page.getByRole("button", { name: "Passer la commande" });
-  await expect(checkoutButton).toBeDisabled();
-  await expect(page.getByText("Disponible prochainement")).toBeVisible();
+  // Checkout now exists (Phase 7) — "Passer la commande" links to /commande.
+  await expect(page.getByRole("link", { name: "Passer la commande" })).toBeVisible();
 });
 
 test("decrementing a line's quantity to zero removes it (BR-CART-003)", async ({ page }) => {

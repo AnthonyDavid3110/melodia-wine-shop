@@ -23,6 +23,31 @@ export async function listCampaignSellers(campaignId: string, dbHandle: DbHandle
     .orderBy(asc(sellers.lastName), asc(sellers.firstName));
 }
 
+/**
+ * Publicly eligible sellers for the given campaign (Phase 7 §10,
+ * BR-SEL-002) — `Seller.active AND CampaignSeller.active`, scoped to
+ * this campaign. This is the ONE query both `/commande`'s seller
+ * combobox and its server-side re-validation use, and the same one
+ * `/admin/commandes/nouvelle` reuses (docs/10 §48 — manual orders use
+ * the "SAME seller eligibility rules"). Never exposes inactive/foreign-
+ * campaign sellers, unlike `listCampaignSellers` (admin-only, includes
+ * inactive rows for management purposes).
+ */
+export async function listActiveCampaignSellers(campaignId: string, dbHandle: DbHandle = db) {
+  return dbHandle
+    .select({ id: sellers.id, firstName: sellers.firstName, lastName: sellers.lastName })
+    .from(campaignSellers)
+    .innerJoin(sellers, eq(campaignSellers.sellerId, sellers.id))
+    .where(
+      and(
+        eq(campaignSellers.campaignId, campaignId),
+        eq(campaignSellers.active, true),
+        eq(sellers.active, true),
+      ),
+    )
+    .orderBy(asc(sellers.lastName), asc(sellers.firstName));
+}
+
 /** Active Sellers not yet participating in this campaign (active or inactive row) — the "add" picker's candidates. */
 export async function listAttachableSellers(campaignId: string, dbHandle: DbHandle = db) {
   const attached = await dbHandle

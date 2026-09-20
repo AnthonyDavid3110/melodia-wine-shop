@@ -1947,7 +1947,8 @@ Application implementation:
     Phase 4   Public catalogue                  COMPLETE
     Phase 5   Campaign/catalogue administration COMPLETE
     Phase 6   Customer cart                     COMPLETE
-    Phase 7+  Not started
+    Phase 7   Checkout and order administration COMPLETE
+    Phase 8+  Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master
@@ -1961,6 +1962,19 @@ the reordering note explaining the split from the originally-bundled
 "cart and checkout." No Order is created in Phase 6; checkout and order
 creation are Phase 7. Cart storage format and trust boundary are
 documented in `05-ARCHITECTURE.md`.
+
+Phase 7 covers public checkout (seller-payment method only — no
+Worldline/TWINT/card, see §48's note), the shared authoritative
+order-creation core (`createOrder()`, used identically by ONLINE
+checkout and MANUAL admin entry), duplicate-submission idempotency
+(§14a in `04-DATA-MODEL.md`), and basic order administration (list,
+detail, customer/delivery-note editing, seller assign/reassign/
+unassign, cancellation, manual order entry) — see §42/§44/§45/§46/§48
+above for scope. Explicitly excluded: marking payments received, seller
+settlement, preparation/fulfilment status transitions beyond creation,
+refunds, and everything else listed as a later-phase concern in the
+Phase 7 implementation gate. Checkout trust boundary and order-creation
+transaction are documented concretely in `05-ARCHITECTURE.md` §20/§21.
 
 The project was specified before implementation.
 

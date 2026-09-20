@@ -43,7 +43,11 @@ test("anonymous visitor can load / and browse the active campaign catalog, no au
   // The seeded campaign's own wines — proves real DB data renders, not
   // a static mock (this is the one place a seeded name is expected: an
   // assertion on rendered output, not production component source).
-  await expect(page.getByRole("heading", { name: "Chasselas", level: 3 })).toBeVisible();
+  // `exact: true` since "Chasselas Grand Cru" is also a real, distinct
+  // product in this campaign and would otherwise substring-match too.
+  await expect(
+    page.getByRole("heading", { name: "Chasselas", level: 3, exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 });
 
@@ -62,8 +66,12 @@ test("missing product images render the editorial placeholder with a meaningful 
   // Every seeded product currently has imageUrl = null. Chasselas
   // legitimately appears twice (its own wine row + inside the
   // Discovery Box composition) — scope to the wine collection.
+  // `exact: true` since "Chasselas Grand Cru" is also a real, distinct
+  // product and would otherwise substring-match too.
   await expect(
-    page.locator("#selection").getByRole("img", { name: "Photo provisoire — Chasselas" }),
+    page
+      .locator("#selection")
+      .getByRole("img", { name: "Photo provisoire — Chasselas", exact: true }),
   ).toBeVisible();
 });
 
@@ -88,7 +96,9 @@ test("the Discovery Box disappears when no bundle is active — never a partial/
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Carton découverte" })).not.toBeVisible();
     // The wine collection itself must still be there — only the bundle disappeared.
-    await expect(page.getByRole("heading", { name: "Chasselas", level: 3 })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Chasselas", level: 3, exact: true }),
+    ).toBeVisible();
   } finally {
     for (const bundle of activeBundles) {
       await db.update(bundles).set({ active: true }).where(eq(bundles.id, bundle.id));
