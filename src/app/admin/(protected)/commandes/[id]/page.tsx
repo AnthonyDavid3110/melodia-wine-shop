@@ -14,13 +14,17 @@ import {
 } from "@/domain/orders/order-labels";
 import {
   canCancelOrder,
+  canHandOrderToSeller,
   canMarkCustomerPaymentReceived,
+  canMarkOrderDelivered,
+  canPrepareOrder,
   canReassignSeller,
 } from "@/domain/orders/order-guards";
 import { CustomerInfoForm } from "./customer-info-form";
 import { SellerAssignment } from "./seller-assignment";
 import { CancelOrderButton } from "./cancel-order-button";
 import { MarkPaymentReceivedButton } from "./mark-payment-received-button";
+import { FulfilmentSection } from "./fulfilment-section";
 
 const EVENT_LABELS: Record<string, string> = {
   ORDER_CREATED: "Commande créée",
@@ -28,6 +32,11 @@ const EVENT_LABELS: Record<string, string> = {
   SELLER_CHANGED: "Vendeur modifié",
   ORDER_EDITED: "Commande modifiée",
   ORDER_CANCELLED: "Commande annulée",
+  CUSTOMER_PAYMENT_MARKED_PAID: "Paiement client marqué comme reçu",
+  SETTLEMENT_COMPLETED: "Règlement à Mélodia enregistré",
+  ORDER_PREPARED: "Commande préparée",
+  ORDER_HANDED_TO_SELLER: "Commande remise au vendeur",
+  ORDER_DELIVERED: "Commande livrée",
 };
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -88,6 +97,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         {canReassignSeller(order) ? (
           <SellerAssignment
             orderId={order.id}
+            orderStatus={order.status}
             currentSellerId={order.sellerId}
             sellerOptions={sellerOptions}
           />
@@ -184,6 +194,22 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             />
           </div>
         ) : null}
+      </section>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="font-display text-h3">Préparation et livraison</h2>
+        <FulfilmentSection
+          orderId={order.id}
+          status={order.status}
+          hasSeller={order.sellerId !== null}
+          canPrepare={canPrepareOrder(order)}
+          canHandToSeller={canHandOrderToSeller(order)}
+          canMarkDelivered={canMarkOrderDelivered(order)}
+          confirmedAt={order.confirmedAt}
+          preparedAt={order.preparedAt}
+          handedToSellerAt={order.handedToSellerAt}
+          deliveredAt={order.deliveredAt}
+        />
       </section>
 
       <section className="flex flex-col gap-3">

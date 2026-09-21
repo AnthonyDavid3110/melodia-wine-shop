@@ -13,10 +13,13 @@ import { assignOrderSellerAction } from "./actions";
  */
 export function SellerAssignment({
   orderId,
+  orderStatus,
   currentSellerId,
   sellerOptions,
 }: {
   orderId: string;
+  /** Drives the Phase 9 §28 contextual warning below — never blocks reassignment itself. */
+  orderStatus: string;
   currentSellerId: string | null;
   sellerOptions: { value: string; label: string }[];
 }) {
@@ -25,6 +28,7 @@ export function SellerAssignment({
   const [error, setError] = useState<string | null>(null);
 
   const dirty = selected !== currentSellerId;
+  const alreadyHandedOver = orderStatus === "HANDED_TO_SELLER" || orderStatus === "DELIVERED";
 
   function handleSubmit() {
     setError(null);
@@ -38,6 +42,12 @@ export function SellerAssignment({
 
   return (
     <div className="flex flex-col gap-3">
+      {alreadyHandedOver ? (
+        <p className="text-warning text-body-sm font-sans">
+          Cette commande a déjà été remise à un vendeur. Modifier le vendeur change son attribution
+          actuelle mais ne modifie pas l&rsquo;historique de remise/livraison.
+        </p>
+      ) : null}
       <Combobox
         options={sellerOptions}
         value={selected}

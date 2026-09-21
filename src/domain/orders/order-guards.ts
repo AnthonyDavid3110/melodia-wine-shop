@@ -52,3 +52,36 @@ export function canMarkCustomerPaymentReceived(
 ): boolean {
   return order.status !== "CANCELLED" && order.customerPaymentStatus === "PENDING";
 }
+
+/**
+ * Phase 9 fulfilment guards — strictly sequential, one step at a time
+ * (docs/10 §60: "CONFIRMED → PREPARED → HANDED_TO_SELLER →
+ * DELIVERED"). Each guard checks the exact current status rather than
+ * "not yet reached this step", so CONFIRMED → HANDED_TO_SELLER or
+ * CONFIRMED → DELIVERED are rejected exactly like a CANCELLED order
+ * would be — there is no separate CANCELLED check needed because
+ * CANCELLED never equals the required exact status. `NEW` (reserved for
+ * a future online-payment-awaiting state, never produced by the current
+ * `createOrder()`) is deliberately NOT treated as CONFIRMED here — it
+ * simply cannot prepare yet, preserving its documented future role
+ * without inventing a transition for it.
+ */
+export function canPrepareOrder(order: Pick<OrderGuardInput, "status">): boolean {
+  return order.status === "CONFIRMED";
+}
+
+/**
+ * Handoff requires both the PREPARED status and an assigned seller
+ * (Phase 9 approved decision — physical orders cannot be handed to
+ * nobody). Central preparation itself has no such requirement — see
+ * `canPrepareOrder`.
+ */
+export function canHandOrderToSeller(
+  order: Pick<OrderGuardInput, "status"> & { sellerId: string | null },
+): boolean {
+  return order.status === "PREPARED" && order.sellerId !== null;
+}
+
+export function canMarkOrderDelivered(order: Pick<OrderGuardInput, "status">): boolean {
+  return order.status === "HANDED_TO_SELLER";
+}

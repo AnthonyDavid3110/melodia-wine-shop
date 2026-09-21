@@ -15,6 +15,11 @@ import {
   markCustomerPaymentReceived,
   updateOrderCustomerInfo,
 } from "@/infrastructure/orders/orders";
+import {
+  handOrderToSeller,
+  markOrderDelivered,
+  markOrderPrepared,
+} from "@/infrastructure/fulfilment/fulfilment";
 
 export interface CustomerInfoFormState {
   errors?: Partial<Record<string, string[]>>;
@@ -107,6 +112,40 @@ export async function cancelOrderAction(
   revalidatePath(`/admin/commandes/${orderId}`);
   revalidatePath("/admin/commandes");
   return {};
+}
+
+/**
+ * Phase 9 single-order fulfilment actions. Routine, reversible-in-
+ * effect-only-forward operational steps (docs/06-ADMIN-SPEC.md §54) —
+ * unlike cancellation/mark-paid, these are direct one-click actions
+ * with no confirmation dialog, matching the same plain-form pattern as
+ * `setSellerActiveAction`. The order-detail page only ever renders
+ * these forms when the matching pure guard already agrees, so a thrown
+ * error here means a genuine race/stale-page edge case rather than an
+ * expected outcome.
+ */
+export async function markOrderPreparedAction(orderId: string) {
+  const admin = await requireAdmin();
+  await markOrderPrepared(orderId, admin.adminId);
+  revalidatePath(`/admin/commandes/${orderId}`);
+  revalidatePath("/admin/commandes");
+  revalidatePath("/admin/preparation");
+}
+
+export async function handOrderToSellerAction(orderId: string) {
+  const admin = await requireAdmin();
+  await handOrderToSeller(orderId, admin.adminId);
+  revalidatePath(`/admin/commandes/${orderId}`);
+  revalidatePath("/admin/commandes");
+  revalidatePath("/admin/preparation");
+}
+
+export async function markOrderDeliveredAction(orderId: string) {
+  const admin = await requireAdmin();
+  await markOrderDelivered(orderId, admin.adminId);
+  revalidatePath(`/admin/commandes/${orderId}`);
+  revalidatePath("/admin/commandes");
+  revalidatePath("/admin/preparation");
 }
 
 export interface MarkPaymentReceivedState {

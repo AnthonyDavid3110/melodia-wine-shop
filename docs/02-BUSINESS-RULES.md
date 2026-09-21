@@ -446,6 +446,40 @@ seller responsible for customer delivery.
 
 `DELIVERED` means the customer has received the order.
 
+## BR-STA-006 — Fulfilment transitions are strictly sequential
+
+**Phase 9 addition:** the only valid forward transitions are
+`CONFIRMED -> PREPARED`, `PREPARED -> HANDED_TO_SELLER`, and
+`HANDED_TO_SELLER -> DELIVERED`. Skipping a step (e.g.
+`CONFIRMED -> HANDED_TO_SELLER` or `CONFIRMED -> DELIVERED`) is
+rejected server-side. There is no reverse/undo transition in V1.
+`NEW` is not treated as equivalent to `CONFIRMED` — it is reserved for
+a future online-payment-awaiting state and cannot be prepared while in
+that state. Enforced by `canPrepareOrder`/`canHandOrderToSeller`/
+`canMarkOrderDelivered` (`src/domain/orders/order-guards.ts`), never
+merely by hiding the control in the UI (BR-ADM-003).
+
+## BR-STA-007 — Seller required for handoff, not for preparation
+
+**Phase 9 addition:** an order without an assigned seller may still
+transition `CONFIRMED -> PREPARED` — central preparation is independent
+of delivery assignment (BR-PRE-003). It may NOT transition
+`PREPARED -> HANDED_TO_SELLER` until a seller is assigned, since a
+physical order cannot be handed to nobody. `DELIVERED` is consequently
+unreachable while unassigned, by transitivity of BR-STA-006.
+
+## BR-STA-008 — Fulfilment progress does not change the Phase 8 financial guards
+
+**Phase 9 addition:** cancellation remains governed solely by
+BR-CAN-004 (blocked once `customerPaymentStatus = PAID` or
+`sellerSettlementStatus = SETTLED`) — an unpaid, unsettled order remains
+cancellable regardless of how far its fulfilment has progressed, even
+once `DELIVERED`. Seller reassignment remains governed solely by the
+Phase 8 addition to BR-SEL-005 (blocked only once `SETTLED`) — an
+order that is `HANDED_TO_SELLER` or `DELIVERED` but not yet settled may
+still be reassigned; the admin UI shows a contextual warning in that
+case, but does not block the action.
+
 ---
 
 # 16. Online checkout rules
@@ -617,6 +651,9 @@ seller.
 Unassigned orders must not disappear from preparation data.
 
 They should be prominently identified for administrative action.
+
+**Phase 9 addition:** unassigned orders may be marked `PREPARED` — see
+BR-STA-007 for the full transition rule.
 
 ---
 

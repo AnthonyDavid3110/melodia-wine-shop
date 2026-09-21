@@ -172,7 +172,8 @@ test("realistic end-to-end flow: mark payment received, create a settlement, ver
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Confirmer l'encaissement" }).click();
   await expect(page.getByText("Payée")).toBeVisible();
-  await expect(page.getByText("CUSTOMER_PAYMENT_MARKED_PAID")).toBeVisible();
+  // Phase 9 gave this event type a proper French label (previously the raw type string).
+  await expect(page.getByText("Paiement client marqué comme reçu")).toBeVisible();
   // Settlement remains PENDING — money hasn't reached Mélodia yet.
   await expect(page.locator("dd").filter({ hasText: "En attente" })).toBeVisible();
 
@@ -194,7 +195,8 @@ test("realistic end-to-end flow: mark payment received, create a settlement, ver
   // Order detail now shows the order as settled.
   await page.goto(orderUrl, { waitUntil: "networkidle" });
   await expect(page.getByText("Réglé", { exact: true })).toBeVisible();
-  await expect(page.getByText("SETTLEMENT_COMPLETED")).toBeVisible();
+  // Phase 9 gave this event type a proper French label (previously the raw type string).
+  await expect(page.getByText("Règlement à Mélodia enregistré")).toBeVisible();
 });
 
 test("seller detail shows a calm empty state when there is nothing to settle", async ({ page }) => {

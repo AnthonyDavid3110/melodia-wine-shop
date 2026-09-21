@@ -1949,7 +1949,8 @@ Application implementation:
     Phase 6   Customer cart                     COMPLETE
     Phase 7   Checkout and order administration COMPLETE
     Phase 8   Offline payment and seller workflows COMPLETE
-    Phase 9+  Not started
+    Phase 9   Preparation and fulfilment           COMPLETE
+    Phase 10+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master
@@ -1995,6 +1996,35 @@ SETTLED` — see BR-CAN-004/BR-SEL-005 in `02-BUSINESS-RULES.md`. No
 migration was required — every column already existed. No
 `/admin/paiements` dashboard, no Worldline/TWINT/card, no refunds; see
 §56 above for the full non-goal list.
+
+Phase 9 covers the physical preparation/delivery workflow: exact
+campaign wine requirements (`getCampaignWineRequirements()`, wiring the
+already-existing Phase 2 pure `calculateWineRequirements()`/
+`decomposeBundle()` into a real, campaign-scoped, batched query for the
+first time), an informational carton breakdown
+(`calculateCartonBreakdown()`, never rounding the authoritative
+requirement), and the strictly sequential fulfilment state machine
+`CONFIRMED -> PREPARED -> HANDED_TO_SELLER -> DELIVERED`
+(`canPrepareOrder`/`canHandOrderToSeller`/`canMarkOrderDelivered` in
+`src/domain/orders/order-guards.ts`, enforced by
+`markOrderPrepared()`/`handOrderToSeller()`/`markOrderDelivered()` and
+their all-or-nothing bulk counterparts in
+`src/infrastructure/fulfilment/fulfilment.ts`). An unassigned order may
+be `PREPARED` but not handed to a seller — see BR-STA-006/007 in
+`02-BUSINESS-RULES.md`. Fulfilment progress never changes the Phase 8
+financial guards (BR-STA-008): an unpaid order remains cancellable
+regardless of fulfilment status, and seller reassignment remains
+blocked only once `SETTLED` — the admin UI adds a contextual warning
+when reassigning a `HANDED_TO_SELLER`/`DELIVERED` order, but does not
+block it. `/admin/preparation` provides the three documented views (par
+vendeur, toutes les commandes, besoins en vin) with an explicit
+campaign selector (`listFulfilmentRelevantCampaigns()`/
+`resolveDefaultFulfilmentCampaign()`) that keeps preparation reachable
+for a `CLOSED` campaign, never only an `ACTIVE` one. No migration was
+required — the `order_status` enum values and the `preparedAt`/
+`handedToSellerAt`/`deliveredAt` timestamp columns already existed. No
+PDF, no CSV export, no inventory/procurement system; see §38 of the
+Phase 9 implementation gate for the full non-goal list.
 
 The project was specified before implementation.
 

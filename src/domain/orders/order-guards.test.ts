@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canCancelOrder, canMarkCustomerPaymentReceived, canReassignSeller } from "./order-guards";
+import {
+  canCancelOrder,
+  canHandOrderToSeller,
+  canMarkCustomerPaymentReceived,
+  canMarkOrderDelivered,
+  canPrepareOrder,
+  canReassignSeller,
+} from "./order-guards";
 
 describe("canCancelOrder", () => {
   const base = {
@@ -62,5 +69,62 @@ describe("canMarkCustomerPaymentReceived", () => {
     expect(
       canMarkCustomerPaymentReceived({ status: "CANCELLED", customerPaymentStatus: "PENDING" }),
     ).toBe(false);
+  });
+});
+
+describe("canPrepareOrder", () => {
+  it("allows preparing a CONFIRMED order", () => {
+    expect(canPrepareOrder({ status: "CONFIRMED" })).toBe(true);
+  });
+
+  it("blocks a NEW order (reserved future online-payment state, not treated as CONFIRMED)", () => {
+    expect(canPrepareOrder({ status: "NEW" })).toBe(false);
+  });
+
+  it("blocks an already-PREPARED order (no re-preparing)", () => {
+    expect(canPrepareOrder({ status: "PREPARED" })).toBe(false);
+  });
+
+  it("blocks skipping ahead from HANDED_TO_SELLER or DELIVERED", () => {
+    expect(canPrepareOrder({ status: "HANDED_TO_SELLER" })).toBe(false);
+    expect(canPrepareOrder({ status: "DELIVERED" })).toBe(false);
+  });
+
+  it("blocks a CANCELLED order", () => {
+    expect(canPrepareOrder({ status: "CANCELLED" })).toBe(false);
+  });
+});
+
+describe("canHandOrderToSeller", () => {
+  it("allows handoff for a PREPARED order with an assigned seller", () => {
+    expect(canHandOrderToSeller({ status: "PREPARED", sellerId: "seller-1" })).toBe(true);
+  });
+
+  it("blocks handoff for an unassigned PREPARED order", () => {
+    expect(canHandOrderToSeller({ status: "PREPARED", sellerId: null })).toBe(false);
+  });
+
+  it("blocks handoff from CONFIRMED even with a seller assigned (must be PREPARED first)", () => {
+    expect(canHandOrderToSeller({ status: "CONFIRMED", sellerId: "seller-1" })).toBe(false);
+  });
+
+  it("blocks handoff from an already-HANDED_TO_SELLER or DELIVERED order", () => {
+    expect(canHandOrderToSeller({ status: "HANDED_TO_SELLER", sellerId: "seller-1" })).toBe(false);
+    expect(canHandOrderToSeller({ status: "DELIVERED", sellerId: "seller-1" })).toBe(false);
+  });
+});
+
+describe("canMarkOrderDelivered", () => {
+  it("allows delivery for a HANDED_TO_SELLER order", () => {
+    expect(canMarkOrderDelivered({ status: "HANDED_TO_SELLER" })).toBe(true);
+  });
+
+  it("blocks skipping ahead from CONFIRMED or PREPARED", () => {
+    expect(canMarkOrderDelivered({ status: "CONFIRMED" })).toBe(false);
+    expect(canMarkOrderDelivered({ status: "PREPARED" })).toBe(false);
+  });
+
+  it("blocks an already-DELIVERED order", () => {
+    expect(canMarkOrderDelivered({ status: "DELIVERED" })).toBe(false);
   });
 });

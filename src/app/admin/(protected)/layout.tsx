@@ -55,6 +55,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
             <Link href="/admin/commandes" className="hover:text-accent transition-colors">
               Commandes
             </Link>
+            <Link href="/admin/preparation" className="hover:text-accent transition-colors">
+              Préparation
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-4">

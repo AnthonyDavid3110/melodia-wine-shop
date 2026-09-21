@@ -1,4 +1,4 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import {
   campaignEventTypeForTransition,
   isValidCampaignTransition,
@@ -6,7 +6,7 @@ import {
 } from "@/domain/campaign/campaign-status";
 import { resolveActiveCampaign } from "@/domain/catalog/resolve-active-campaign";
 import { db } from "../database/client";
-import { campaignEvents, campaigns } from "../database/schema";
+import { campaignEvents, campaigns, orders } from "../database/schema";
 
 export class InvalidCampaignTransitionError extends Error {
   constructor(from: CampaignStatus, to: CampaignStatus) {
@@ -201,6 +201,62 @@ export async function transitionCampaignStatus(
 
     return updated;
   });
+}
+
+/**
+ * Campaigns fulfilment work can meaningfully happen against (Phase 9
+ * §8/§22) — ACTIVE or CLOSED, newest first. Excludes DRAFT (no public
+ * orders can exist yet, BR-CAM-002) and ARCHIVED (docs/10 §100:
+ * archival only happens once all operational/financial work is already
+ * complete, so it must never become — or remain offered as — an
+ * operational fulfilment target). Backs both the `/admin/preparation`
+ * campaign selector and its default-resolution logic below.
+ */
+export async function listFulfilmentRelevantCampaigns(dbHandle: DbHandle = db) {
+  return dbHandle
+    .select()
+    .from(campaigns)
+    .where(inArray(campaigns.status, ["ACTIVE", "CLOSED"]))
+    .orderBy(desc(campaigns.createdAt));
+}
+
+/**
+ * The default `/admin/preparation` campaign context (Phase 9 §8 —
+ * explicit deviation from the read-only inspection's "no ACTIVE ->
+ * unavailable" recommendation). Preparation/handoff/delivery must
+ * continue after a campaign closes, so unlike `getActiveCampaign()`
+ * this never returns `null` merely because nothing is ACTIVE: it falls
+ * back to the most recently created CLOSED campaign that actually has
+ * orders (preferred, since that is the one still requiring physical
+ * work), or otherwise the most recently created CLOSED campaign at all.
+ * Only `null` when no ACTIVE/CLOSED campaign exists whatsoever.
+ */
+export async function resolveDefaultFulfilmentCampaign(dbHandle: DbHandle = db) {
+  const active = await getActiveCampaign(dbHandle);
+  if (active) {
+    return active;
+  }
+
+  const closedCampaigns = await dbHandle
+    .select()
+    .from(campaigns)
+    .where(eq(campaigns.status, "CLOSED"))
+    .orderBy(desc(campaigns.createdAt));
+  if (closedCampaigns.length === 0) {
+    return null;
+  }
+
+  const campaignIds = closedCampaigns.map((campaign) => campaign.id);
+  const orderRows = await dbHandle
+    .select({ campaignId: orders.campaignId })
+    .from(orders)
+    .where(inArray(orders.campaignId, campaignIds));
+  const campaignIdsWithOrders = new Set(orderRows.map((row) => row.campaignId));
+
+  return (
+    closedCampaigns.find((campaign) => campaignIdsWithOrders.has(campaign.id)) ??
+    closedCampaigns[0]!
+  );
 }
 
 export async function listCampaignEvents(campaignId: string, dbHandle: DbHandle = db) {

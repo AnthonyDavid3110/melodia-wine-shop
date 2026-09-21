@@ -148,7 +148,11 @@ test("realistic end-to-end flow: catalog, cart, checkout, confirmation, cart cle
   await page.getByRole("link", { name: orderNumberText }).click();
   await expect(page).toHaveURL(/\/admin\/commandes\/.+/, { timeout: 15000 });
   await expect(page.getByRole("heading", { name: orderNumberText, level: 1 })).toBeVisible();
-  await expect(page.getByText("Confirmée")).toBeVisible();
+  // Scoped to `.first()`: Phase 9's fulfilment progression on this same
+  // page also renders a "Confirmée" step label, so the bare text now
+  // matches twice — this asserts the order-header status badge
+  // specifically, which renders first in DOM order.
+  await expect(page.getByText("Confirmée").first()).toBeVisible();
   await expect(page.locator('input[name="customerEmail"]')).toHaveValue(email);
 });
 
