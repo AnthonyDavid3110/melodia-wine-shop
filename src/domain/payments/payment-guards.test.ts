@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canConfirmOnlinePaymentSuccess,
   canInitiateOnlinePayment,
+  canReconcileOnlinePayment,
   canRetryOnlinePayment,
   hasActivePaymentAttempt,
   isActivePaymentAttempt,
@@ -99,6 +100,43 @@ describe("canConfirmOnlinePaymentSuccess", () => {
         { status: "CONFIRMED", customerPaymentStatus: "PAID" },
         { status: "PENDING" },
       ),
+    ).toBe(false);
+  });
+});
+
+describe("canReconcileOnlinePayment", () => {
+  const order = { status: "NEW", customerPaymentStatus: "PENDING" };
+
+  it("allows reconciliation when the order is eligible and a SAFERPAY attempt is active", () => {
+    expect(canReconcileOnlinePayment(order, [{ status: "PENDING", provider: "SAFERPAY" }])).toBe(
+      true,
+    );
+  });
+
+  it("blocks an offline SELLER order — no SAFERPAY attempt exists", () => {
+    expect(canReconcileOnlinePayment(order, [{ status: "PENDING", provider: "OFFLINE" }])).toBe(
+      false,
+    );
+  });
+
+  it("blocks an order with no payment attempts at all", () => {
+    expect(canReconcileOnlinePayment(order, [])).toBe(false);
+  });
+
+  it("blocks once the order is no longer NEW/PENDING (already paid/confirmed)", () => {
+    expect(
+      canReconcileOnlinePayment({ status: "CONFIRMED", customerPaymentStatus: "PAID" }, [
+        { status: "SUCCEEDED", provider: "SAFERPAY" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("blocks when every SAFERPAY attempt is already terminal FAILED/CANCELLED — nothing left to reconcile", () => {
+    expect(
+      canReconcileOnlinePayment(order, [
+        { status: "FAILED", provider: "SAFERPAY" },
+        { status: "CANCELLED", provider: "SAFERPAY" },
+      ]),
     ).toBe(false);
   });
 });

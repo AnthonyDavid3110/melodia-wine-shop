@@ -21,10 +21,12 @@ import {
   canPrepareOrder,
   canReassignSeller,
 } from "@/domain/orders/order-guards";
+import { canReconcileOnlinePayment } from "@/domain/payments/payment-guards";
 import { CustomerInfoForm } from "./customer-info-form";
 import { SellerAssignment } from "./seller-assignment";
 import { CancelOrderButton } from "./cancel-order-button";
 import { MarkPaymentReceivedButton } from "./mark-payment-received-button";
+import { VerifyWithSaferpayButton } from "./verify-with-saferpay-button";
 import { FulfilmentSection } from "./fulfilment-section";
 
 const EVENT_LABELS: Record<string, string> = {
@@ -195,6 +197,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               orderId={order.id}
               formattedAmount={formatCHF(money(order.totalAmount))}
             />
+          </div>
+        ) : null}
+
+        {canReconcileOnlinePayment(order, payments) ? (
+          <div>
+            <VerifyWithSaferpayButton orderId={order.id} />
           </div>
         ) : null}
 

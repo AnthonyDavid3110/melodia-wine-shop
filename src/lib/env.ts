@@ -95,6 +95,30 @@ export const serverSchema = z.object({
 
   /** JSON API Basic Authentication password — see SAFERPAY_API_USERNAME. Never logged, never sent to the browser. */
   SAFERPAY_API_PASSWORD: z.string().optional(),
+
+  /**
+   * Trusted, server-configured public origin for application-owned
+   * externally reachable URLs — Saferpay `ReturnUrl`,
+   * `SuccessNotifyUrl`, `FailNotifyUrl` (Phase 10 Gate 10C-B1). A
+   * dedicated variable, not a reuse of `BETTER_AUTH_URL` — that value
+   * happened to equal the public origin only incidentally in Gate 10B;
+   * Better Auth's own base URL is a distinct concern that could diverge
+   * later (e.g. a separate auth subdomain), and payment-callback code
+   * should not silently break if it does. Never derived from request
+   * `Host`/`X-Forwarded-Host` headers, which are attacker-controlled
+   * (docs/09-SECURITY.md §59's open-redirect principle extended to
+   * payment callback URLs). Optional here for the same "don't break
+   * unrelated module loads" reason as `DATABASE_URL` —
+   * `src/lib/app-url.ts` asserts this is present at the point a URL is
+   * actually constructed.
+   */
+  APP_BASE_URL: z
+    .string()
+    .url()
+    .refine((url) => url.startsWith("http://") || url.startsWith("https://"), {
+      message: "APP_BASE_URL must be an http:// or https:// URL",
+    })
+    .optional(),
 });
 
 /**
@@ -133,6 +157,7 @@ export const serverEnv = parseEnv(serverSchema, {
   SAFERPAY_TERMINAL_ID: process.env.SAFERPAY_TERMINAL_ID,
   SAFERPAY_API_USERNAME: process.env.SAFERPAY_API_USERNAME,
   SAFERPAY_API_PASSWORD: process.env.SAFERPAY_API_PASSWORD,
+  APP_BASE_URL: process.env.APP_BASE_URL,
 });
 
 export const publicEnv = parseEnv(publicSchema, {});

@@ -1950,7 +1950,7 @@ Application implementation:
     Phase 7   Checkout and order administration COMPLETE
     Phase 8   Offline payment and seller workflows COMPLETE
     Phase 9   Preparation and fulfilment           COMPLETE
-    Phase 10  Online payments                      Gate 10C-A IN PROGRESS
+    Phase 10  Online payments                      Gate 10C-B1 IN PROGRESS
     Phase 11+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
@@ -2082,10 +2082,41 @@ Verified against the real Saferpay TEST account for both TWINT and
 CARD, and covered by automated tests (unit, DB including the
 concurrency proof, provider-contract, and Playwright — the fake test
 provider now models `AUTHORIZED` requiring capture, not a `CAPTURED`
-shortcut). No migration. Explicitly not done in this gate (deferred to
-Gate 10C-B): `NotifyUrl`/`FailNotifyUrl`, `APP_BASE_URL`, Neon, Vercel,
-admin reconciliation, refunds, `CaptureId` persistence (needed only for
-a future refund feature).
+shortcut). No migration.
+
+Phase 10 Gate 10C-B1 (Saferpay notification + manual reconciliation) is
+**in progress, not complete**. Implemented: a dedicated `APP_BASE_URL`
+server env var (`src/lib/app-url.ts`) replacing Gate 10B's incidental
+`BETTER_AUTH_URL` reuse for `ReturnUrl` construction; the
+`GET /api/payments/saferpay/notify/[token]` route (registered as the
+identical URL for both `SuccessNotifyUrl` and `FailNotifyUrl`,
+delegating entirely to the existing `confirmOnlinePayment()` — no second
+financial mutation path); an HTTP response strategy distinguishing
+genuinely reconciled/terminal/anomaly outcomes (200) from transport-
+level transient failures (503, via a new `ConfirmOnlinePaymentResult
+.transient` flag) so Saferpay's own callback-retry mechanism can help;
+a real gap found and fixed in `initiateOnlinePayment()` (it would have
+silently superseded an attempt Saferpay had already authorized but
+whose capture confirmation was still uncertain — closed using the
+existing `providerPaymentId` field, no migration); the admin "Vérifier
+auprès de Saferpay" manual reconciliation action
+(`reconcileOnlinePaymentForOrder()`, also delegating to
+`confirmOnlinePayment()`, never a "mark paid" shortcut, precise
+single-eligible-attempt selection with explicit failure on zero/
+multiple candidates); and the mandatory Return-vs-Notify concurrency
+proof (real committed connections, one caller via `confirmOnlinePayment`
+directly, the other via the real notify route handler). Covered by
+automated tests (unit — including the route handler's HTTP-response
+mapping and the new `appUrl()` helper; DB — including cases A–F for the
+notify path and the admin reconciliation function; the mandatory
+concurrency test; Playwright — four new scenarios proving Notify-only
+confirmation/cancellation without ever visiting `/commande/retour`, and
+both callback orderings). No migration. Explicitly not done in this
+gate (deferred to Gate 10C-B2): real Saferpay TEST `NotifyUrl` delivery
+against a publicly reachable deployment (Neon + Vercel staging), Vercel
+Deployment Protection bypass configuration, refunds, abandoned-order
+cleanup (TBD-PAY-006, unchanged). Phase 10 must not be marked COMPLETE
+until Gate 10C-B2's real-provider notification test is performed.
 
 The project was specified before implementation.
 

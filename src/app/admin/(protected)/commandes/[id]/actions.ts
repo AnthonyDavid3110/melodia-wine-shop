@@ -20,6 +20,11 @@ import {
   markOrderDelivered,
   markOrderPrepared,
 } from "@/infrastructure/fulfilment/fulfilment";
+import {
+  MultipleUnresolvedPaymentAttemptsError,
+  NoReconcilablePaymentAttemptError,
+  reconcileOnlinePaymentForOrder,
+} from "@/infrastructure/payments/online-payments";
 
 export interface CustomerInfoFormState {
   errors?: Partial<Record<string, string[]>>;
@@ -169,6 +174,42 @@ export async function markCustomerPaymentReceivedAction(
     await markCustomerPaymentReceived(orderId, admin.adminId);
   } catch (error) {
     if (error instanceof OrderNotFoundError || error instanceof OrderNotPayableError) {
+      return { formError: error.message };
+    }
+    throw error;
+  }
+
+  revalidatePath(`/admin/commandes/${orderId}`);
+  revalidatePath("/admin/commandes");
+  return {};
+}
+
+export interface ReconcileOnlinePaymentState {
+  formError?: string;
+}
+
+/**
+ * "Vérifier auprès de Saferpay" (Phase 10 Gate 10C-B1 §22) — trusted
+ * manual recovery for a `NEW` online Order whose Saferpay notification
+ * was lost or whose browser never returned. Delegates entirely to
+ * `reconcileOnlinePaymentForOrder()`, which itself delegates to the
+ * exact same `confirmOnlinePayment()` the browser return route and the
+ * notify webhook use — this action can never force PAID; it only ever
+ * asks Saferpay for the authoritative current state.
+ */
+export async function reconcileOnlinePaymentAction(
+  orderId: string,
+): Promise<ReconcileOnlinePaymentState> {
+  await requireAdmin();
+
+  try {
+    await reconcileOnlinePaymentForOrder(orderId);
+  } catch (error) {
+    if (
+      error instanceof OrderNotFoundError ||
+      error instanceof NoReconcilablePaymentAttemptError ||
+      error instanceof MultipleUnresolvedPaymentAttemptsError
+    ) {
       return { formError: error.message };
     }
     throw error;

@@ -518,6 +518,41 @@ The endpoint must:
 9. persist atomically where appropriate;
 10. return controlled response.
 
+## Phase 10 Gate 10C-B1 implementation (adopted)
+
+Saferpay's `SuccessNotifyUrl`/`FailNotifyUrl`
+(`GET /api/payments/saferpay/notify/[token]`) is unsigned — there is no
+provider signature to verify (confirmed against current official
+Saferpay documentation, not assumed). Authenticity therefore rests on a
+different model than a signed webhook:
+
+1. correlation via the existing 256-bit opaque `payments.return_token`
+   (the same token already used in the public `ReturnUrl`) — no second
+   notification-specific token;
+2. the callback is NEVER itself authoritative — it only triggers the
+   existing `confirmOnlinePayment()`, which re-derives truth from
+   `PaymentPage/Assert`/`Transaction/Capture` before any state change
+   (docs/08-PAYMENTS.md §72.3);
+3. a malformed or unknown token performs no provider call and mutates
+   nothing (HTTP 200, so Saferpay does not retry something that can
+   never resolve) — token validity is never revealed in the response;
+4. duplicate delivery is safe — the underlying reconciliation is already
+   idempotent (Gate 10C-A's `SELECT ... FOR UPDATE` + Saferpay's own
+   Capture idempotency), so a repeated callback is a no-op;
+5. amount/currency are re-validated inside `confirmOnlinePayment()`
+   exactly as for the browser return path — unchanged.
+
+**No rate limiter was added** — the opaque token is unguessable, an
+early DB lookup happens before any provider call (bounding the cost of
+a replay to one cheap read once the Payment is terminal), and the
+payment session's own short lifetime further bounds the window. Revisit
+only if real abuse is observed (§40/§42 below).
+
+**CSRF protection does not apply** to this route — it carries no ambient
+cookie/session authentication for a forged request to exploit, and even
+a successfully "forged" call only ever triggers a harmless re-Assert,
+never a forced state change.
+
 ---
 
 # 27. Webhook secrets

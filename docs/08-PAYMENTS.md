@@ -1637,6 +1637,110 @@ mean "financially final," set only after a genuinely captured result
 (direct `CAPTURED` or a successful `Capture` call), so it remains
 sufficient. No `CaptureId` persistence — needed only for a future refund
 feature (TBD-PAY-005, out of scope), not for this gate's correctness
-goal; flagged as a known, deliberately deferred gap. No `NotifyUrl`,
-`APP_BASE_URL`, Neon, or Vercel work — that is Gate 10C-B, which now
-builds on a financially-correct foundation.
+goal; flagged as a known, deliberately deferred gap. `NotifyUrl`,
+`APP_BASE_URL`, Neon, and Vercel work were out of scope for Gate
+10C-A — see §72 below for `NotifyUrl`/`APP_BASE_URL` (implemented in
+Gate 10C-B1); Neon/Vercel remain Gate 10C-B2.
+
+---
+
+# 72. Saferpay notification + manual reconciliation (Phase 10 Gate 10C-B1)
+
+## 72.1 APP_BASE_URL
+
+`ReturnUrl`, `SuccessNotifyUrl`, and `FailNotifyUrl` are now built from a
+dedicated `APP_BASE_URL` server env var (`src/lib/app-url.ts`'s
+`appUrl()`, using the `URL` constructor — never string concatenation),
+replacing Gate 10B's incidental reuse of `BETTER_AUTH_URL` for this
+purpose. `initiateOnlinePayment()` constructs both URLs itself, from the
+same `returnToken`, immediately before calling `Initialize` — callers no
+longer pass a return-URL base at all. Never derived from request
+`Host`/`X-Forwarded-Host` headers (docs/09-SECURITY.md §59).
+
+## 72.2 Notification route
+
+`GET /api/payments/saferpay/notify/[token]`
+(`src/app/api/payments/saferpay/notify/[token]/route.ts`) — a plain
+Route Handler (Saferpay calls this as a raw external GET; Server
+Actions cannot serve that). Registered as the exact SAME URL for both
+`Notification.SuccessNotifyUrl` and `Notification.FailNotifyUrl` on
+`Initialize` — deliberate: the URL itself must never encode or imply a
+financial verdict. Uses the existing `payments.return_token` for
+correlation — no second notification-specific token, no migration.
+
+## 72.3 Callback authority model
+
+The callback request itself proves nothing. Per official Saferpay
+documentation, it is an unsigned HTTP GET carrying no financial
+payload. Receiving it means only "Saferpay says something changed for
+this Payment" — the handler's entire job is: locate the Payment by
+token → delegate to the existing `confirmOnlinePayment()` (the exact
+same function the browser return route and admin manual reconciliation
+use) → whatever authoritative state `PaymentPage/Assert`
+(and `Transaction/Capture` when `Assert` reports `AUTHORIZED`, Gate
+10C-A) returns is what gets applied. No second financial mutation
+implementation exists.
+
+## 72.4 HTTP response strategy
+
+| Case | Response |
+|---|---|
+| Reconciled (any terminal outcome, incl. flagged anomaly) | 200 |
+| Already-terminal / duplicate callback | 200 |
+| Unknown or malformed token | 200 (no provider call made; never reveals token validity) |
+| Assert/Capture transport failure (`ConfirmOnlinePaymentResult.transient`) | 503 |
+| Configuration failure | 503 |
+| Unexpected/DB failure | 503 |
+
+`ConfirmOnlinePaymentResult` gained a `transient` flag (Gate 10C-B1),
+set only when Melodia's own outbound call to Saferpay failed at the
+transport level — distinguishing "worth Saferpay's own callback-retry
+mechanism" from "nothing external is actually broken." The browser
+return page ignores this field entirely.
+
+## 72.5 Return/Notify concurrency
+
+Both the browser return route and the notify route call the identical
+`confirmOnlinePayment()`, so the same two-layer safety proven in Gate
+10C-A (Saferpay's own `TRANSACTION_ALREADY_CAPTURED` Capture idempotency
++ the `SELECT ... FOR UPDATE` local lock) applies without modification.
+Proven directly with a dedicated real-committed-connections test racing
+a Return-path caller against the real notify route handler on the same
+`AUTHORIZED` transaction (`online-payment-concurrency.db.test.ts`).
+
+## 72.6 Admin manual reconciliation
+
+"Vérifier auprès de Saferpay" (`src/app/admin/(protected)/commandes/[id]/verify-with-saferpay-button.tsx`,
+`reconcileOnlinePaymentAction`) — a trusted recovery path for a `NEW`
+online Order whose notification was lost or whose browser never
+returned. Delegates to `reconcileOnlinePaymentForOrder()`, which itself
+delegates to `confirmOnlinePayment()` — never a "mark paid" shortcut.
+Selects the single non-terminal SAFERPAY attempt for the Order; refuses
+with a distinct error (never guesses) if zero or more than one such
+attempt exists. Shown only when `canReconcileOnlinePayment()` (Order
+still `NEW`/`PENDING`, at least one active SAFERPAY attempt) is true —
+never for offline SELLER orders, already-PAID Orders, or Orders with
+only terminal FAILED/CANCELLED history.
+
+## 72.7 Rate limiting and CSRF — deliberately not added
+
+No rate-limiting dependency was added. Security rests on: the 256-bit
+opaque token (unguessable), an early DB lookup before any provider call
+(a replay against an unknown/terminal token costs one cheap read, never
+a provider call), and Saferpay's own Assert/Capture as the sole
+financial authority (a successful unauthorized call only ever triggers
+a harmless re-Assert). CSRF protection does not apply: this route has no
+ambient cookie/session authentication for a CSRF token to guard, and
+the opaque token is itself a capability, not an authentication credential
+whose ambient presence CSRF exploits.
+
+## 72.8 Outstanding: Gate 10C-B2
+
+The real Saferpay TEST `NotifyUrl` callback has NOT been exercised
+against a publicly reachable deployment — `localhost` cannot receive it,
+and per this gate's explicit scope no tunnel was used. A minimal real
+`Initialize` regression check (§34 of the Gate 10C-B1 report) confirmed
+Saferpay syntactically accepts a `localhost` `SuccessNotifyUrl`/
+`FailNotifyUrl` at `Initialize` time. Verifying an actual delivered
+notification requires the staging deployment (Neon + Vercel) that Gate
+10C-B2 is scoped to build.

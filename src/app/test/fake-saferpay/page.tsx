@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { getFakeAttempt } from "@/infrastructure/payments/fake-test-provider";
-import { resolveFakePaymentAction } from "./actions";
+import { resolveFakePaymentAction, resolveFakePaymentNoRedirectAction } from "./actions";
 
 export const metadata = { robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -36,6 +36,12 @@ export default async function FakeSaferpayPage({
       <p>
         Amount: {attempt.amountValue} CHF — Method: {attempt.paymentMethod}
       </p>
+      {/* Gate 10C-B1: rendered as plain text so a Playwright test can
+          read the real return/notify URLs (sharing the same opaque
+          token) before deciding whether to exercise the Return path,
+          the Notify-only path, or both in either order. */}
+      <p data-testid="return-url">Return URL: {attempt.returnUrl}</p>
+      <p data-testid="notify-url">Notify URL: {attempt.notifyUrl}</p>
       <form action={resolveFakePaymentAction.bind(null, token, "success")}>
         <button type="submit">Simulate success</button>
       </form>
@@ -44,6 +50,16 @@ export default async function FakeSaferpayPage({
       </form>
       <form action={resolveFakePaymentAction.bind(null, token, "aborted")}>
         <button type="submit">Simulate cancel</button>
+      </form>
+      <p>Resolve without visiting the return page (Notify-only scenarios):</p>
+      <form action={resolveFakePaymentNoRedirectAction.bind(null, token, "success")}>
+        <button type="submit">Simulate success (no redirect)</button>
+      </form>
+      <form action={resolveFakePaymentNoRedirectAction.bind(null, token, "declined")}>
+        <button type="submit">Simulate decline (no redirect)</button>
+      </form>
+      <form action={resolveFakePaymentNoRedirectAction.bind(null, token, "aborted")}>
+        <button type="submit">Simulate cancel (no redirect)</button>
       </form>
     </div>
   );

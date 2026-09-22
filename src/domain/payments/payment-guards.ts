@@ -66,3 +66,30 @@ export function canConfirmOnlinePaymentSuccess(
 ): boolean {
   return order.status === "NEW" && isActivePaymentAttempt(payment);
 }
+
+export interface PaymentAttemptWithProviderInput extends PaymentAttemptInput {
+  provider: string;
+}
+
+/**
+ * Whether the admin "Vérifier auprès de Saferpay" manual reconciliation
+ * action (Phase 10 Gate 10C-B1 §22/§24) should be offered for this
+ * Order — a real Order-level decision, so the UI and the server action
+ * both consult the same rule (hiding a control is never itself the
+ * authorization boundary). Shown only for an Order still awaiting its
+ * first trusted confirmation (`NEW`/`PENDING`, matching
+ * `canInitiateOnlinePayment`) that has at least one non-terminal
+ * SAFERPAY attempt — never for offline SELLER orders (no SAFERPAY
+ * attempt exists), never for an already-PAID online Order, never when
+ * every online attempt is already terminal FAILED/CANCELLED with
+ * nothing left to reconcile.
+ */
+export function canReconcileOnlinePayment(
+  order: OnlinePaymentOrderInput,
+  payments: readonly PaymentAttemptWithProviderInput[],
+): boolean {
+  return (
+    canInitiateOnlinePayment(order) &&
+    payments.some((payment) => payment.provider === "SAFERPAY" && isActivePaymentAttempt(payment))
+  );
+}

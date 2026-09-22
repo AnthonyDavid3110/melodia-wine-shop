@@ -28,12 +28,37 @@ import type {
 
 interface FakeAttempt {
   returnUrl: string;
+  /** Gate 10C-B1 — the real notify route URL, so Playwright can fire it directly (e.g. `page.request.get()`) without ever visiting `returnUrl`. */
+  notifyUrl: string;
   amountValue: string;
   paymentMethod: string;
   outcome: "pending" | "success" | "declined" | "aborted";
 }
 
-const attempts = new Map<string, FakeAttempt>();
+/**
+ * Gate 10C-B1: stored on `globalThis`, not a plain module-level
+ * `const` — under Next.js dev mode (Turbopack), a Route Handler
+ * (`src/app/api/.../route.ts`) and a Server Action/page
+ * (`src/app/test/fake-saferpay/{page,actions}.tsx`) can each get their
+ * OWN instantiation of this module's top-level scope, so a plain
+ * module-level Map is silently NOT shared between the notify route and
+ * the fake page/actions that mutate it — discovered via a real
+ * Playwright run where the notify route consistently observed a fake
+ * attempt still "pending" immediately after the page's action had
+ * already (verifiably, via server-side logging) set it to "success".
+ * `globalThis` is the one thing guaranteed to be the same object
+ * across every module instantiation in the same Node process,
+ * regardless of which Next.js runtime "kind" a given entry point is
+ * bundled under — the same pattern commonly used to keep a single
+ * PrismaClient instance alive across Next.js dev-mode hot reloads.
+ */
+const globalForFakeProvider = globalThis as unknown as {
+  __fakeSaferpayAttempts?: Map<string, FakeAttempt>;
+};
+if (!globalForFakeProvider.__fakeSaferpayAttempts) {
+  globalForFakeProvider.__fakeSaferpayAttempts = new Map<string, FakeAttempt>();
+}
+const attempts: Map<string, FakeAttempt> = globalForFakeProvider.__fakeSaferpayAttempts;
 
 export async function initializePaymentPage(
   input: InitializePaymentPageInput,
@@ -41,6 +66,7 @@ export async function initializePaymentPage(
   const token = `fake-token-${randomUUID()}`;
   attempts.set(token, {
     returnUrl: input.returnUrl,
+    notifyUrl: input.notifyUrl,
     amountValue: String(input.amount),
     paymentMethod: input.paymentMethods[0] ?? "TWINT",
     outcome: "pending",

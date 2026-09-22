@@ -40,6 +40,13 @@ vi.mock("@/infrastructure/payments/saferpay-client", () => ({
 
 const { initializePaymentPage, assertPaymentPage, capturePayment } =
   await import("@/infrastructure/payments/saferpay-client");
+const { GET: notifyRouteGET } = await import("@/app/api/payments/saferpay/notify/[token]/route");
+
+function callNotifyRoute(token: string) {
+  return notifyRouteGET(new Request("http://localhost/api/payments/saferpay/notify/" + token), {
+    params: Promise.resolve({ token }),
+  });
+}
 
 async function getRealActiveCampaign() {
   const [campaign] = await db.select().from(campaigns).where(eq(campaigns.status, "ACTIVE"));
@@ -134,7 +141,7 @@ describe("confirmOnlinePayment concurrency", () => {
       redirectUrl: "https://test.saferpay.com/vt2/api/Payment/PaymentPage/somepage",
       expiration: new Date(Date.now() + 15 * 60_000),
     });
-    await initiateOnlinePayment(orderResult.order.id, "TWINT", "https://vins.ecmelodia.ch/retour");
+    await initiateOnlinePayment(orderResult.order.id, "TWINT");
 
     const [payment] = await db
       .select()
@@ -202,7 +209,7 @@ describe("confirmOnlinePayment concurrency", () => {
       redirectUrl: "https://test.saferpay.com/vt2/api/Payment/PaymentPage/somepage",
       expiration: new Date(Date.now() + 15 * 60_000),
     });
-    await initiateOnlinePayment(orderResult.order.id, "TWINT", "https://vins.ecmelodia.ch/retour");
+    await initiateOnlinePayment(orderResult.order.id, "TWINT");
 
     const [payment] = await db
       .select()
@@ -264,5 +271,83 @@ describe("confirmOnlinePayment concurrency", () => {
     const [finalPayment] = await db.select().from(payments).where(eq(payments.id, payment.id));
     expect(finalPayment?.status).toBe("SUCCEEDED");
     expect(finalPayment?.providerPaymentId).toBe("txn-real-concurrency-authorized");
+  });
+
+  it("browser Return and Saferpay Notify racing on the SAME AUTHORIZED attempt converge to exactly one success (Gate 10C-B1, mandatory)", async () => {
+    const campaign = await getRealActiveCampaign();
+    const product = await addTemporaryProduct(campaign.id);
+    createdProductIds.push(product.id);
+
+    const orderResult = await createOrder(
+      customerInput({
+        items: [{ type: "PRODUCT", id: product.id, quantity: 1 }],
+        paymentMethod: "TWINT",
+      }),
+      { type: "SYSTEM" },
+      "ONLINE",
+    );
+    if (orderResult.status !== "created") throw new Error("fixture order creation failed");
+    createdOrderIds.push(orderResult.order.id);
+
+    vi.mocked(initializePaymentPage).mockResolvedValue({
+      token: `saferpay-token-${randomUUID()}`,
+      redirectUrl: "https://test.saferpay.com/vt2/api/Payment/PaymentPage/somepage",
+      expiration: new Date(Date.now() + 15 * 60_000),
+    });
+    await initiateOnlinePayment(orderResult.order.id, "TWINT");
+
+    const [payment] = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.orderId, orderResult.order.id));
+    if (!payment?.returnToken) throw new Error("fixture attempt has no return token");
+
+    vi.mocked(assertPaymentPage).mockResolvedValue({
+      kind: "success",
+      providerStatus: "AUTHORIZED",
+      transactionId: "txn-return-notify-race",
+      amountValue: String(orderResult.order.totalAmount),
+      currencyCode: "CHF",
+      paymentMethod: "TWINT",
+    });
+    // Mirrors Saferpay's own documented Capture idempotency, same as
+    // the concurrent-Notify test above — one caller genuinely captures,
+    // the other observes TRANSACTION_ALREADY_CAPTURED.
+    vi.mocked(capturePayment)
+      .mockResolvedValueOnce({ kind: "captured", captureId: "cap-race-winner" })
+      .mockResolvedValueOnce({ kind: "already_captured" });
+
+    // Caller 1: the browser Return path (calls confirmOnlinePayment
+    // directly, exactly like /commande/retour does). Caller 2: the
+    // Saferpay Notify path (the real notify route handler). Both race
+    // on the SAME Payment/returnToken, using genuinely separate
+    // connections (no shared transaction handle).
+    const [returnResult, notifyResponse] = await Promise.all([
+      confirmOnlinePayment(payment.returnToken!),
+      callNotifyRoute(payment.returnToken!),
+    ]);
+
+    expect(returnResult.status).toBe("SUCCEEDED");
+    expect(notifyResponse.status).toBe(200);
+
+    const events = await db
+      .select()
+      .from(orderEvents)
+      .where(eq(orderEvents.orderId, orderResult.order.id));
+    expect(events.filter((e) => e.type === "PAYMENT_CONFIRMED_BY_PROVIDER")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "PAYMENT_ANOMALY_DETECTED")).toHaveLength(0);
+
+    const pEvents = await db
+      .select()
+      .from(paymentEvents)
+      .where(eq(paymentEvents.paymentId, payment.id));
+    expect(pEvents).toHaveLength(1);
+
+    const [finalOrder] = await db.select().from(orders).where(eq(orders.id, orderResult.order.id));
+    expect(finalOrder?.status).toBe("CONFIRMED");
+    expect(finalOrder?.customerPaymentStatus).toBe("PAID");
+
+    const [finalPayment] = await db.select().from(payments).where(eq(payments.id, payment.id));
+    expect(finalPayment?.status).toBe("SUCCEEDED");
   });
 });

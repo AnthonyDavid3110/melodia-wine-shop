@@ -173,12 +173,7 @@ describe("initiateOnlinePayment", () => {
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
 
-      const result = await initiateOnlinePayment(
-        order.id,
-        "TWINT",
-        "https://vins.ecmelodia.ch/retour",
-        tx,
-      );
+      const result = await initiateOnlinePayment(order.id, "TWINT", tx);
       expect(result.redirectUrl).toContain("saferpay.com");
 
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
@@ -189,15 +184,40 @@ describe("initiateOnlinePayment", () => {
     });
   });
 
+  it("builds returnUrl/notifyUrl from APP_BASE_URL, sharing the same opaque token, with no PII/UUID/order-number leaked (Gate 10C-B1)", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
+      mockInitializeSuccess();
+
+      await initiateOnlinePayment(order.id, "TWINT", tx);
+      const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+
+      const [call] = vi.mocked(initializePaymentPage).mock.calls;
+      const input = call![0];
+      expect(input.returnUrl).toBe(
+        `http://localhost:3000/commande/retour?rt=${payment!.returnToken}`,
+      );
+      expect(input.notifyUrl).toBe(
+        `http://localhost:3000/api/payments/saferpay/notify/${payment!.returnToken}`,
+      );
+      expect(input.returnUrl).not.toContain(order.id);
+      expect(input.returnUrl).not.toContain(order.orderNumber);
+      expect(input.notifyUrl).not.toContain(order.id);
+      expect(input.notifyUrl).not.toContain(order.orderNumber);
+    });
+  });
+
   it("rejects initiation for an order that is not NEW/PENDING", async () => {
     await withRollback(async (tx) => {
       const campaign = await setupActiveCampaign(tx);
       const product = await setupProduct(tx, campaign.id);
       const order = await createOfflineOrder(tx, campaign.id, product.id);
 
-      await expect(
-        initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx),
-      ).rejects.toThrow(OnlinePaymentNotEligibleError);
+      await expect(initiateOnlinePayment(order.id, "TWINT", tx)).rejects.toThrow(
+        OnlinePaymentNotEligibleError,
+      );
     });
   });
 
@@ -208,8 +228,8 @@ describe("initiateOnlinePayment", () => {
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
 
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
-      await initiateOnlinePayment(order.id, "CARD", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
+      await initiateOnlinePayment(order.id, "CARD", tx);
 
       const rows = await tx.select().from(payments).where(eq(payments.orderId, order.id));
       expect(rows).toHaveLength(2);
@@ -225,9 +245,7 @@ describe("initiateOnlinePayment", () => {
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       vi.mocked(initializePaymentPage).mockRejectedValue(new Error("network down"));
 
-      await expect(
-        initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx),
-      ).rejects.toThrow("network down");
+      await expect(initiateOnlinePayment(order.id, "TWINT", tx)).rejects.toThrow("network down");
 
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
       expect(payment!.status).toBe("FAILED");
@@ -241,12 +259,10 @@ describe("initiateOnlinePayment", () => {
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
 
       vi.mocked(initializePaymentPage).mockRejectedValueOnce(new Error("boom"));
-      await expect(
-        initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx),
-      ).rejects.toThrow();
+      await expect(initiateOnlinePayment(order.id, "TWINT", tx)).rejects.toThrow();
 
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "CARD", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "CARD", tx);
 
       const rows = await tx.select().from(payments).where(eq(payments.orderId, order.id));
       expect(rows).toHaveLength(2);
@@ -263,7 +279,7 @@ describe("confirmOnlinePayment — authoritative success", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({
@@ -310,7 +326,7 @@ describe("confirmOnlinePayment — authoritative success", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({
@@ -353,7 +369,7 @@ describe("confirmOnlinePayment — authoritative success", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({
@@ -384,7 +400,7 @@ describe("confirmOnlinePayment — authoritative success", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({
@@ -411,7 +427,7 @@ describe("confirmOnlinePayment — authoritative success", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [firstPayment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({
@@ -465,7 +481,7 @@ describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       mockAssertAuthorized(order, "txn-authorized-only");
@@ -495,7 +511,7 @@ describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       mockAssertAuthorized(order, "txn-captured-after-auth");
@@ -527,7 +543,7 @@ describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       mockAssertAuthorized(order, "txn-already-captured");
@@ -548,7 +564,7 @@ describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       mockAssertAuthorized(order, "txn-capture-pending");
@@ -572,7 +588,7 @@ describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       mockAssertAuthorized(order, "txn-capture-unrecognized");
@@ -602,7 +618,7 @@ describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       mockAssertAuthorized(order, "txn-unresolved-capture");
@@ -612,9 +628,9 @@ describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
       // The Payment is still locally PENDING (active) AND now carries a
       // real providerPaymentId — a retry must not silently cancel it
       // and start a second, independent Saferpay session.
-      await expect(
-        initiateOnlinePayment(order.id, "CARD", "https://vins.ecmelodia.ch/retour", tx),
-      ).rejects.toThrow(PaymentAttemptUnresolvedError);
+      await expect(initiateOnlinePayment(order.id, "CARD", tx)).rejects.toThrow(
+        PaymentAttemptUnresolvedError,
+      );
 
       const rows = await tx.select().from(payments).where(eq(payments.orderId, order.id));
       expect(rows).toHaveLength(1);
@@ -628,7 +644,7 @@ describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({
@@ -654,7 +670,7 @@ describe("confirmOnlinePayment — failure / cancellation / processing", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "CARD");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "CARD", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "CARD", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({
@@ -678,7 +694,7 @@ describe("confirmOnlinePayment — failure / cancellation / processing", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({ kind: "aborted" });
@@ -698,7 +714,7 @@ describe("confirmOnlinePayment — failure / cancellation / processing", () => {
       const product = await setupProduct(tx, campaign.id);
       const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
       mockInitializeSuccess();
-      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      await initiateOnlinePayment(order.id, "TWINT", tx);
       const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
 
       vi.mocked(assertPaymentPage).mockResolvedValue({ kind: "pending" });

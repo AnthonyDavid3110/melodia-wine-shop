@@ -25,3 +25,27 @@ export async function resolveFakePaymentAction(
   resolveFakeAttempt(token, outcome);
   redirect(attempt.returnUrl);
 }
+
+/**
+ * Gate 10C-B1 test-only helper — resolves the fake provider's outcome
+ * WITHOUT redirecting the browser to `returnUrl`, so a Playwright test
+ * can then fire the real notify route directly (e.g.
+ * `page.request.get(notifyUrl)`), proving reconciliation works without
+ * the browser ever visiting `/commande/retour`. Same double gate as
+ * every other fake-provider entry point.
+ */
+export async function resolveFakePaymentNoRedirectAction(
+  token: string,
+  outcome: "success" | "declined" | "aborted",
+): Promise<void> {
+  if (process.env.NODE_ENV === "production" || process.env.E2E_FAKE_PAYMENT_PROVIDER !== "true") {
+    throw new Error("Not available.");
+  }
+
+  const attempt = getFakeAttempt(token);
+  if (!attempt) {
+    throw new Error("Unknown fake payment attempt.");
+  }
+
+  resolveFakeAttempt(token, outcome);
+}

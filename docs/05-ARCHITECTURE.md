@@ -741,6 +741,7 @@ boundary instead mirrors Saferpay's own two operations:
     src/infrastructure/payments/saferpay-client.ts
         initializePaymentPage()
         assertPaymentPage()
+        capturePayment()            — Transaction/Capture (Gate 10C-A)
 
     src/infrastructure/payments/online-payments.ts
         initiateOnlinePayment()     — orchestration: validate, create
@@ -778,6 +779,26 @@ outside a test run.
 are out of scope for Gate 10B (docs/08-PAYMENTS.md TBD-PAY-005) and
 adding the surface now would be speculative against an unconfirmed
 production contract.
+
+## Phase 10 Gate 10C-B1 implementation (adopted)
+
+Two further additions:
+
+    src/app/api/payments/saferpay/notify/[token]/route.ts
+        GET — Saferpay's SuccessNotifyUrl/FailNotifyUrl (same URL for
+              both), delegating entirely to confirmOnlinePayment()
+
+    online-payments.ts
+        reconcileOnlinePaymentForOrder()  — admin manual reconciliation,
+                                             also delegating to
+                                             confirmOnlinePayment()
+
+Neither introduces a second financial mutation path — both are thin
+callers of the existing `confirmOnlinePayment()` (see
+`08-PAYMENTS.md` §72). `ReturnUrl`/`SuccessNotifyUrl`/`FailNotifyUrl`
+are now built from a dedicated `APP_BASE_URL` server env var
+(`src/lib/app-url.ts`), not the incidental `BETTER_AUTH_URL` reuse
+Gate 10B started with — see §15 below.
 
 ---
 
@@ -1665,6 +1686,14 @@ Do not create ADRs for trivial implementation details.
   `fetch()`, so Next has no automatic signal to treat the route as
   dynamic; without this it silently prerenders once at build time and
   never reflects a later admin change.
+- DECIDED: `APP_BASE_URL` (Phase 10 Gate 10C-B1) is the dedicated,
+  server-only trusted origin for every externally reachable URL this
+  application constructs for a third party (Saferpay's `ReturnUrl`,
+  `SuccessNotifyUrl`, `FailNotifyUrl`) — never derived from request
+  `Host`/`X-Forwarded-Host` headers, and never reused from
+  `BETTER_AUTH_URL` (a distinct concern that only incidentally held the
+  same value in Gate 10B). `src/lib/app-url.ts`'s `appUrl()` builds
+  every such URL via the `URL` constructor, never string concatenation.
 
 ---
 

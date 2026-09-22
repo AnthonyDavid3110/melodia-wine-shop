@@ -8,7 +8,6 @@ import { initiateOnlinePayment } from "@/infrastructure/payments/online-payments
 import { orderCreationInputSchema } from "@/domain/orders/order-input-schema";
 import { formatSellerName } from "@/domain/sellers/format-seller-name";
 import { formatCHF, money } from "@/domain/money";
-import { serverEnv } from "@/lib/env";
 
 export interface CheckoutLineSummary {
   name: string;
@@ -91,7 +90,6 @@ export async function submitCheckoutAction(payload: unknown): Promise<CheckoutAc
       const { redirectUrl } = await initiateOnlinePayment(
         result.order.id,
         parsed.data.paymentMethod,
-        `${serverEnv.BETTER_AUTH_URL}/commande/retour`,
       );
       return { status: "redirect", redirectUrl };
     } catch {

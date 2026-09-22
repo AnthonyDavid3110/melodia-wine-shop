@@ -131,7 +131,7 @@ test("realistic end-to-end flow: TWINT checkout, redirect, trusted simulated suc
   expect(orderAfterRedirect?.customerPaymentStatus).toBe("PENDING");
   expect(orderAfterRedirect?.sellerSettlementStatus).toBe("NOT_APPLICABLE");
 
-  await page.getByRole("button", { name: "Simulate success" }).click();
+  await page.getByRole("button", { name: "Simulate success", exact: true }).click();
   await expect(page).toHaveURL(/\/commande\/retour/, { timeout: 15000 });
   await expect(page.getByText("Paiement confirmé", { exact: false })).toBeVisible();
   // Scoped to the heading: Next.js's own route announcer (an
@@ -164,7 +164,7 @@ test("a declined card payment can be retried with TWINT and then succeeds — on
 
   await startCheckoutWithMethod(page, email, "Carte bancaire");
   await expect(page).toHaveURL(/\/test\/fake-saferpay/, { timeout: 15000 });
-  await page.getByRole("button", { name: "Simulate decline" }).click();
+  await page.getByRole("button", { name: "Simulate decline", exact: true }).click();
 
   await expect(page).toHaveURL(/\/commande\/retour/, { timeout: 15000 });
   await expect(page.getByText("refusé", { exact: false })).toBeVisible();
@@ -175,7 +175,7 @@ test("a declined card payment can be retried with TWINT and then succeeds — on
 
   await page.getByRole("button", { name: "Réessayer avec TWINT" }).click();
   await expect(page).toHaveURL(/\/test\/fake-saferpay/, { timeout: 15000 });
-  await page.getByRole("button", { name: "Simulate success" }).click();
+  await page.getByRole("button", { name: "Simulate success", exact: true }).click();
   await expect(page).toHaveURL(/\/commande\/retour/, { timeout: 15000 });
   await expect(page.getByText("Paiement confirmé", { exact: false })).toBeVisible();
 
@@ -204,7 +204,7 @@ test("a cancelled (aborted) payment shows the calm cancelled state and offers re
 
   await startCheckoutWithMethod(page, email, "TWINT");
   await expect(page).toHaveURL(/\/test\/fake-saferpay/, { timeout: 15000 });
-  await page.getByRole("button", { name: "Simulate cancel" }).click();
+  await page.getByRole("button", { name: "Simulate cancel", exact: true }).click();
 
   await expect(page).toHaveURL(/\/commande\/retour/, { timeout: 15000 });
   await expect(page.getByText("annulé", { exact: false }).first()).toBeVisible();
@@ -242,7 +242,7 @@ test("admin order detail shows the online payment attempt history, never a manua
 
   await startCheckoutWithMethod(page, email, "TWINT");
   await expect(page).toHaveURL(/\/test\/fake-saferpay/, { timeout: 15000 });
-  await page.getByRole("button", { name: "Simulate success" }).click();
+  await page.getByRole("button", { name: "Simulate success", exact: true }).click();
   await expect(page).toHaveURL(/\/commande\/retour/, { timeout: 15000 });
 
   const [order] = await db.select().from(orders).where(eq(orders.customerEmail, email));
@@ -257,4 +257,126 @@ test("admin order detail shows the online payment attempt history, never a manua
   await expect(
     page.getByRole("button", { name: "Marquer le paiement client comme reçu" }),
   ).not.toBeVisible();
+});
+
+// Phase 10 Gate 10C-B1: SuccessNotifyUrl/FailNotifyUrl coverage, driven
+// entirely through the same double-gated fake provider — never real
+// Saferpay. Fires the real `/api/payments/saferpay/notify/[token]`
+// route directly (via `page.request.get`, a genuine out-of-band HTTP
+// GET, not a browser navigation) to prove reconciliation works exactly
+// like the real Saferpay server-to-server callback would.
+async function readFakePageUrls(page: import("@playwright/test").Page) {
+  const notifyText = await page.getByTestId("notify-url").textContent();
+  const returnText = await page.getByTestId("return-url").textContent();
+  return {
+    notifyUrl: notifyText!.replace("Notify URL: ", "").trim(),
+    returnUrl: returnText!.replace("Return URL: ", "").trim(),
+  };
+}
+
+test("Notify-only: resolving success and firing the real notify route confirms the order WITHOUT ever visiting /commande/retour", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  const email = testEmail("notify-only-success");
+
+  await startCheckoutWithMethod(page, email, "TWINT");
+  await expect(page).toHaveURL(/\/test\/fake-saferpay/, { timeout: 15000 });
+  const { notifyUrl } = await readFakePageUrls(page);
+
+  // The no-redirect action is a Server Action bound to a plain <form>
+  // — it never triggers a browser navigation, so Playwright's own
+  // click-triggered auto-waiting (which waits for navigation) cannot
+  // be relied on here; wait for the actual POST response instead so
+  // the mutation is guaranteed to have completed before the notify
+  // call below fires.
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST"),
+    page.getByRole("button", { name: "Simulate success (no redirect)" }).click(),
+  ]);
+  // Still on the fake page — the no-redirect action never navigates.
+  await expect(page).toHaveURL(/\/test\/fake-saferpay/);
+
+  const response = await page.request.get(notifyUrl);
+  expect(response.status()).toBe(200);
+
+  const [order] = await db.select().from(orders).where(eq(orders.customerEmail, email));
+  expect(order?.status).toBe("CONFIRMED");
+  expect(order?.customerPaymentStatus).toBe("PAID");
+});
+
+test("Notify-only: a cancelled payment via the real notify route leaves the order NEW/PENDING", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  const email = testEmail("notify-only-cancel");
+
+  await startCheckoutWithMethod(page, email, "TWINT");
+  await expect(page).toHaveURL(/\/test\/fake-saferpay/, { timeout: 15000 });
+  const { notifyUrl } = await readFakePageUrls(page);
+
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST"),
+    page.getByRole("button", { name: "Simulate cancel (no redirect)" }).click(),
+  ]);
+  await expect(page).toHaveURL(/\/test\/fake-saferpay/);
+
+  const response = await page.request.get(notifyUrl);
+  expect(response.status()).toBe(200);
+
+  const [order] = await db.select().from(orders).where(eq(orders.customerEmail, email));
+  expect(order?.status).toBe("NEW");
+  expect(order?.customerPaymentStatus).toBe("PENDING");
+});
+
+test("Notify then Return: the return page shows the already-reconciled confirmed state", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  const email = testEmail("notify-then-return");
+
+  await startCheckoutWithMethod(page, email, "TWINT");
+  await expect(page).toHaveURL(/\/test\/fake-saferpay/, { timeout: 15000 });
+  const { notifyUrl, returnUrl } = await readFakePageUrls(page);
+
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST"),
+    page.getByRole("button", { name: "Simulate success (no redirect)" }).click(),
+  ]);
+  const notifyResponse = await page.request.get(notifyUrl);
+  expect(notifyResponse.status()).toBe(200);
+
+  // Only NOW does the browser visit the return page — it must show the
+  // already-reconciled state, never re-deriving or re-mutating it.
+  await page.goto(returnUrl);
+  await expect(page.getByText("Paiement confirmé", { exact: false })).toBeVisible();
+});
+
+test("Return then Notify: a subsequent duplicate notify callback is harmless", async ({ page }) => {
+  test.setTimeout(60000);
+  const email = testEmail("return-then-notify");
+
+  await startCheckoutWithMethod(page, email, "TWINT");
+  await expect(page).toHaveURL(/\/test\/fake-saferpay/, { timeout: 15000 });
+  await page.getByRole("button", { name: "Simulate success", exact: true }).click();
+  await expect(page).toHaveURL(/\/commande\/retour/, { timeout: 15000 });
+  await expect(page.getByText("Paiement confirmé", { exact: false })).toBeVisible();
+
+  const [order] = await db.select().from(orders).where(eq(orders.customerEmail, email));
+
+  const returnUrl = new URL(page.url());
+  const token = returnUrl.searchParams.get("rt");
+  const notifyUrl = `${returnUrl.origin}/api/payments/saferpay/notify/${token}`;
+  const response = await page.request.get(notifyUrl);
+  expect(response.status()).toBe(200);
+
+  const events = await db.select().from(orderEvents).where(eq(orderEvents.orderId, order!.id));
+  expect(events.filter((e) => e.type === "PAYMENT_CONFIRMED_BY_PROVIDER")).toHaveLength(1);
+
+  const orderPayments = await db.select().from(payments).where(eq(payments.orderId, order!.id));
+  const pEvents = await db
+    .select()
+    .from(paymentEvents)
+    .where(eq(paymentEvents.paymentId, orderPayments[0]!.id));
+  expect(pEvents).toHaveLength(1);
 });

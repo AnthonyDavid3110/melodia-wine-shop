@@ -186,6 +186,15 @@ export interface InitializePaymentPageInput {
   description: string;
   /** Melodia's own public return route, carrying the opaque ECM return token — never the Saferpay Token. */
   returnUrl: string;
+  /**
+   * Melodia's own public server-to-server notification route (Gate
+   * 10C-B1), carrying the SAME opaque return token as `returnUrl`.
+   * Registered as BOTH `Notification.SuccessNotifyUrl` and
+   * `FailNotifyUrl` — deliberately identical: the URL itself must never
+   * encode or imply a financial verdict (docs/09-SECURITY.md), only the
+   * subsequent `PaymentPage/Assert`/`Transaction/Capture` calls do.
+   */
+  notifyUrl: string;
   paymentMethods: readonly ("TWINT" | "VISA" | "MASTERCARD")[];
 }
 
@@ -217,6 +226,11 @@ export async function initializePaymentPage(
     },
     PaymentMethods: input.paymentMethods,
     ReturnUrl: { Url: input.returnUrl },
+    // Same URL for both — see the `notifyUrl` doc comment above.
+    Notification: {
+      SuccessNotifyUrl: input.notifyUrl,
+      FailNotifyUrl: input.notifyUrl,
+    },
   };
 
   const result = await callSaferpay("/Payment/v1/PaymentPage/Initialize", body, config);

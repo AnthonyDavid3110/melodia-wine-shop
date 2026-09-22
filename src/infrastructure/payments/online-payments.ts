@@ -16,6 +16,7 @@ import {
   type SaferpaySuccessDetails,
 } from "@/domain/payments/normalize-saferpay-outcome";
 import { type Money } from "@/domain/money";
+import { appUrl } from "@/lib/app-url";
 import * as saferpayClient from "./saferpay-client";
 import * as fakeTestProvider from "./fake-test-provider";
 
@@ -86,6 +87,30 @@ export class PaymentAttemptUnresolvedError extends Error {
   }
 }
 
+/** Gate 10C-B1 admin reconciliation — no eligible Saferpay attempt found for this Order. */
+export class NoReconcilablePaymentAttemptError extends Error {
+  constructor() {
+    super("Aucune tentative de paiement en ligne à vérifier pour cette commande.");
+    this.name = "NoReconcilablePaymentAttemptError";
+  }
+}
+
+/**
+ * Gate 10C-B1 admin reconciliation — more than one Saferpay attempt is
+ * simultaneously active for the same Order. `initiateOnlinePayment()`'s
+ * own supersede/refuse logic should make this unreachable in practice;
+ * surfaced as a controlled error rather than guessing which attempt to
+ * trust (§23 of the gate brief).
+ */
+export class MultipleUnresolvedPaymentAttemptsError extends Error {
+  constructor() {
+    super(
+      "Plusieurs tentatives de paiement en ligne sont actives pour cette commande — situation inattendue, vérifiez manuellement dans Saferpay avant de poursuivre.",
+    );
+    this.name = "MultipleUnresolvedPaymentAttemptsError";
+  }
+}
+
 function isUniqueViolation(error: unknown, constraint: string): boolean {
   return (
     typeof error === "object" &&
@@ -129,7 +154,6 @@ export interface InitiateOnlinePaymentResult {
 export async function initiateOnlinePayment(
   orderId: string,
   method: "TWINT" | "CARD",
-  returnUrlBase: string,
   dbHandle: DbHandle = db,
 ): Promise<InitiateOnlinePaymentResult> {
   const { paymentId, returnToken, amount, orderNumber } = await dbHandle.transaction(async (tx) => {
@@ -183,17 +207,26 @@ export async function initiateOnlinePayment(
     };
   });
 
-  const returnUrl = `${returnUrlBase}?rt=${returnToken}`;
   const saferpayMethods =
     method === "TWINT" ? (["TWINT"] as const) : (["VISA", "MASTERCARD"] as const);
 
   let initialized;
   try {
+    // Gate 10C-B1: both callback URLs are built here from the trusted
+    // server-only APP_BASE_URL, via the URL-constructor-based appUrl()
+    // helper (never naive string concatenation) — a missing/invalid
+    // APP_BASE_URL throws AppBaseUrlNotConfiguredError, caught by the
+    // same catch block as an Initialize failure below, so it correctly
+    // marks this phantom attempt FAILED rather than leaving it stuck
+    // PENDING forever.
+    const returnUrl = appUrl("/commande/retour", { rt: returnToken });
+    const notifyUrl = appUrl(`/api/payments/saferpay/notify/${returnToken}`);
     initialized = await getProvider().initializePaymentPage({
       amount,
       orderNumber,
       description: `Commande ${orderNumber} — Les Vins de Mélodia`,
       returnUrl,
+      notifyUrl,
       paymentMethods: saferpayMethods,
     });
   } catch (error) {
@@ -219,6 +252,17 @@ export interface ConfirmOnlinePaymentResult {
   status: "SUCCEEDED" | "PROCESSING" | "FAILED" | "CANCELLED";
   orderNumber: string;
   anomaly?: boolean;
+  /**
+   * Gate 10C-B1 — set only when `status` is `PROCESSING` because OUR
+   * OWN outbound call to Saferpay failed at the transport level (a
+   * genuine network/timeout condition), as opposed to Saferpay having
+   * answered with a still-pending/unrecognized result. Distinguishes
+   * "worth asking Saferpay's own callback-retry mechanism to try again
+   * later" from "nothing external is actually broken" — used by the
+   * notify route to choose its HTTP response code (docs/08-PAYMENTS.md
+   * §71.6); the browser-return page ignores this field entirely.
+   */
+  transient?: boolean;
 }
 
 /**
@@ -284,7 +328,7 @@ export async function confirmOnlinePayment(
   } catch {
     // Provider unreachable right now — never fabricate a result; stay
     // PROCESSING, safe to retry on the next visit/poll.
-    return { status: "PROCESSING", orderNumber: order.orderNumber };
+    return { status: "PROCESSING", orderNumber: order.orderNumber, transient: true };
   }
 
   const normalized = normalizeSaferpayOutcome(outcome);
@@ -332,7 +376,7 @@ export async function confirmOnlinePayment(
       // PROCESSING, safe to retry (a retried Capture call is safe even
       // if the first one actually reached Saferpay — see
       // TRANSACTION_ALREADY_CAPTURED handling in normalizeCapture).
-      return { status: "PROCESSING", orderNumber: order.orderNumber };
+      return { status: "PROCESSING", orderNumber: order.orderNumber, transient: true };
     }
 
     const normalizedCapture = normalizeSaferpayCaptureOutcome(captureOutcome);
@@ -374,6 +418,47 @@ export async function confirmOnlinePayment(
     orderNumber: order.orderNumber,
     anomaly: "anomaly" in normalized ? normalized.anomaly : false,
   };
+}
+
+/**
+ * Admin-triggered trusted manual reconciliation (Gate 10C-B1 §22/§23)
+ * — for a `NEW` online Order whose Saferpay notification was lost or
+ * whose browser never returned. Delegates entirely to the existing
+ * `confirmOnlinePayment()` — no second financial mutation
+ * implementation. Never accepts an orderId-scoped "just mark it paid"
+ * shortcut: it locates the correct Payment row and re-runs the exact
+ * same Assert/Capture-aware reconciliation a browser return or a
+ * Saferpay notification would.
+ *
+ * Selection rule: exactly one non-terminal (`PENDING`) SAFERPAY Payment
+ * attempt for the Order is reconciled. Zero eligible attempts and more
+ * than one eligible attempt are both refused with a distinct, precise
+ * error rather than guessing — the latter should be unreachable given
+ * `initiateOnlinePayment()`'s own supersede/refuse logic, but is
+ * treated as a real possibility, not assumed away.
+ */
+export async function reconcileOnlinePaymentForOrder(
+  orderId: string,
+  dbHandle: DbHandle = db,
+): Promise<ConfirmOnlinePaymentResult> {
+  const orderPayments = await dbHandle.select().from(payments).where(eq(payments.orderId, orderId));
+  const eligible = orderPayments.filter(
+    (payment) => payment.provider === "SAFERPAY" && isActivePaymentAttempt(payment),
+  );
+
+  if (eligible.length === 0) {
+    throw new NoReconcilablePaymentAttemptError();
+  }
+  if (eligible.length > 1) {
+    throw new MultipleUnresolvedPaymentAttemptsError();
+  }
+
+  const [target] = eligible;
+  if (!target?.returnToken) {
+    throw new NoReconcilablePaymentAttemptError();
+  }
+
+  return confirmOnlinePayment(target.returnToken, dbHandle);
 }
 
 async function recordAnomaly(

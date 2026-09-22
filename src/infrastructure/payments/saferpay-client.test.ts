@@ -49,6 +49,7 @@ describe("configuration", () => {
         orderNumber: "ECM-2026-0001",
         description: "Test",
         returnUrl: "https://example.test/retour",
+        notifyUrl: "https://example.test/notify",
         paymentMethods: ["TWINT"],
       }),
     ).rejects.toThrow(SaferpayConfigurationError);
@@ -72,6 +73,7 @@ describe("initializePaymentPage", () => {
       orderNumber: "ECM-2026-0001",
       description: "Commande ECM-2026-0001",
       returnUrl: "https://vins.ecmelodia.ch/retour?rt=abc",
+      notifyUrl: "https://example.test/notify",
       paymentMethods: ["TWINT"],
     });
 
@@ -100,6 +102,40 @@ describe("initializePaymentPage", () => {
     expect(body.ReturnUrl).toEqual({ Url: "https://vins.ecmelodia.ch/retour?rt=abc" });
   });
 
+  it("registers the SAME notifyUrl as both Notification.SuccessNotifyUrl and FailNotifyUrl (Gate 10C-B1)", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(200, {
+        ResponseHeader: {},
+        Token: "token-abc",
+        RedirectUrl: "https://test.saferpay.com/vt2/api/Payment/PaymentPage/xyz",
+        Expiration: "2026-01-01T00:00:00Z",
+      }),
+    );
+
+    await initializePaymentPage({
+      amount: money(1800),
+      orderNumber: "ECM-2026-0001",
+      description: "Commande ECM-2026-0001",
+      returnUrl: "https://vins.ecmelodia.ch/commande/retour?rt=abc",
+      notifyUrl: "https://vins.ecmelodia.ch/api/payments/saferpay/notify/abc",
+      paymentMethods: ["TWINT"],
+    });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0]!;
+    const body = JSON.parse(init!.body as string);
+    expect(body.Notification.SuccessNotifyUrl).toBe(
+      "https://vins.ecmelodia.ch/api/payments/saferpay/notify/abc",
+    );
+    expect(body.Notification.FailNotifyUrl).toBe(body.Notification.SuccessNotifyUrl);
+    // Never the Saferpay Token, a DB UUID, or the human order number in
+    // either callback URL — only the opaque token this test itself
+    // supplied via notifyUrl/returnUrl.
+    expect(body.Notification.SuccessNotifyUrl).not.toContain("token-abc");
+    expect(body.Notification.SuccessNotifyUrl).not.toContain("ECM-2026-0001");
+    expect(body.ReturnUrl.Url).not.toContain("token-abc");
+    expect(body.ReturnUrl.Url).not.toContain("ECM-2026-0001");
+  });
+
   it("generates a distinct RequestId on every call", async () => {
     // A fresh Response per call — a Response body can only be read once.
     vi.mocked(fetch).mockImplementation(() =>
@@ -118,6 +154,7 @@ describe("initializePaymentPage", () => {
       orderNumber: "ECM-2026-0001",
       description: "d",
       returnUrl: "https://example.test",
+      notifyUrl: "https://example.test/notify",
       paymentMethods: ["TWINT"] as const,
     };
     await initializePaymentPage(input);
@@ -144,6 +181,7 @@ describe("initializePaymentPage", () => {
       orderNumber: "ECM-2026-0001",
       description: "d",
       returnUrl: "https://example.test",
+      notifyUrl: "https://example.test/notify",
       paymentMethods: ["TWINT"],
     });
     await expect(call).rejects.toBeInstanceOf(SaferpayRequestError);
@@ -162,6 +200,7 @@ describe("initializePaymentPage", () => {
         orderNumber: "ECM-2026-0001",
         description: "d",
         returnUrl: "https://example.test",
+        notifyUrl: "https://example.test/notify",
         paymentMethods: ["TWINT"],
       }),
     ).rejects.toThrow(SaferpayNetworkError);
@@ -181,6 +220,7 @@ describe("initializePaymentPage", () => {
         orderNumber: "ECM-2026-0001",
         description: "d",
         returnUrl: "https://example.test",
+        notifyUrl: "https://example.test/notify",
         paymentMethods: ["TWINT"],
       }),
     ).rejects.toThrow(SaferpayNetworkError);

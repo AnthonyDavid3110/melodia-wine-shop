@@ -7,7 +7,6 @@ import {
   confirmOnlinePayment,
   initiateOnlinePayment,
 } from "@/infrastructure/payments/online-payments";
-import { serverEnv } from "@/lib/env";
 
 export interface PaymentStatusView {
   status: "SUCCEEDED" | "PROCESSING" | "FAILED" | "CANCELLED" | "NOT_FOUND";
@@ -50,11 +49,7 @@ export async function retryOnlinePaymentAction(
   }
 
   try {
-    const { redirectUrl } = await initiateOnlinePayment(
-      payment.orderId,
-      method,
-      `${serverEnv.BETTER_AUTH_URL}/commande/retour`,
-    );
+    const { redirectUrl } = await initiateOnlinePayment(payment.orderId, method);
     return { status: "redirect", redirectUrl };
   } catch {
     return {
