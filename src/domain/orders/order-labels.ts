@@ -61,3 +61,25 @@ export function paymentMethodLabel(method: string): string {
       return method;
   }
 }
+
+/** French labels for `Payment.status` (docs/04-DATA-MODEL.md §19) — Phase 10 online-payment attempt history. */
+export function paymentAttemptStatusLabel(status: string): string {
+  switch (status) {
+    case "PENDING":
+      return "En attente";
+    case "PROCESSING":
+      return "En cours";
+    case "SUCCEEDED":
+      return "Réussi";
+    case "FAILED":
+      return "Échoué";
+    case "CANCELLED":
+      return "Annulé";
+    case "REFUNDED":
+      return "Remboursé";
+    case "PARTIALLY_REFUNDED":
+      return "Partiellement remboursé";
+    default:
+      return status;
+  }
+}

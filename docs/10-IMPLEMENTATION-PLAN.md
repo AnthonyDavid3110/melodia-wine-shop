@@ -1950,7 +1950,8 @@ Application implementation:
     Phase 7   Checkout and order administration COMPLETE
     Phase 8   Offline payment and seller workflows COMPLETE
     Phase 9   Preparation and fulfilment           COMPLETE
-    Phase 10+ Not started
+    Phase 10  Online payments                      Gate 10B IN PROGRESS
+    Phase 11+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master
@@ -2025,6 +2026,31 @@ required — the `order_status` enum values and the `preparedAt`/
 `handedToSellerAt`/`deliveredAt` timestamp columns already existed. No
 PDF, no CSV export, no inventory/procurement system; see §38 of the
 Phase 9 implementation gate for the full non-goal list.
+
+Phase 10 Gate 10B (online payments, Saferpay) is **in progress, not
+complete**. Implemented: the full architecture and Saferpay JSON API
+integration against the real Saferpay TEST environment — provider-
+neutral orchestration (`initiateOnlinePayment()`/`confirmOnlinePayment()`
+in `src/infrastructure/payments/online-payments.ts`), the
+`saferpay-client.ts` adapter (Initialize/Assert, no signed-webhook
+abstraction — see `08-PAYMENTS.md` §70), the approved online Order
+lifecycle (`NEW` → trusted-success transaction → `CONFIRMED`/`PAID`,
+`sellerSettlementStatus` always `NOT_APPLICABLE`), multi-attempt Payment
+history with retry, the opaque public return-correlation token
+(`payments.return_token`, migration `0005`), the `/commande/retour`
+return route, checkout's TWINT/Carte bancaire/Paiement au membre
+selector, and admin visibility into online payment attempts. Verified
+end-to-end against the real Saferpay TEST account and covered by
+automated tests (unit, DB, provider-contract, and Playwright via a
+double-gated fake test provider). **Deliberately not yet done**, per the
+gate's own scope: production Saferpay account/credentials (deployment
+dependency, not started), refunds (out of scope), `NotifyUrl`/webhook
+registration (needs a publicly reachable HTTPS deployment — a local dev
+server cannot receive it), transactional email (Phase 11), and a full
+rich order-confirmation view on the return page (the current one is
+intentionally minimal per the gate's "no giant checkout redesign"
+instruction). Phase 10 must not be marked COMPLETE until these are
+addressed in a future gate.
 
 The project was specified before implementation.
 

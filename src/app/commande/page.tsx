@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getPublicCatalog } from "@/infrastructure/catalog/get-public-catalog";
 import { listActiveCampaignSellers } from "@/infrastructure/campaign/campaign-sellers";
+import { isOnlinePaymentAvailable } from "@/infrastructure/payments/online-payments";
 import { formatSellerName } from "@/domain/sellers/format-seller-name";
 import { PublicHeader } from "@/components/public/header";
 import { PublicFooter } from "@/components/public/footer";
@@ -48,7 +49,11 @@ export default async function CheckoutPage() {
       <main className="mx-auto w-full max-w-2xl flex-1 px-5 py-12 sm:px-8">
         <H1 className="text-2xl">Commande</H1>
         <div className="mt-8">
-          <CheckoutForm catalog={catalog} sellerOptions={sellerOptions} />
+          <CheckoutForm
+            catalog={catalog}
+            sellerOptions={sellerOptions}
+            onlinePaymentAvailable={isOnlinePaymentAvailable()}
+          />
         </div>
       </main>
       <PublicFooter />

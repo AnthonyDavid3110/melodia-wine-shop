@@ -5,6 +5,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // Same rationale as vitest.config.db.ts: `server-only` throws
+      // unconditionally under plain Node (its guarantee is normally
+      // enforced by Next's bundler "react-server" export condition, not
+      // Node runtime semantics) — point it at the package's own no-op
+      // `empty.js` for tests only. Needed here now that a plain unit
+      // test (Phase 10, saferpay-client.test.ts) imports a server-only
+      // module directly; the real app build is untouched.
+      "server-only": fileURLToPath(new URL("./node_modules/server-only/empty.js", import.meta.url)),
     },
   },
   test: {

@@ -4,9 +4,11 @@ import { eq } from "drizzle-orm";
 import { db } from "@/infrastructure/database/client";
 import { sellers } from "@/infrastructure/database/schema";
 import { createOrder } from "@/infrastructure/orders/create-order";
+import { initiateOnlinePayment } from "@/infrastructure/payments/online-payments";
 import { orderCreationInputSchema } from "@/domain/orders/order-input-schema";
 import { formatSellerName } from "@/domain/sellers/format-seller-name";
 import { formatCHF, money } from "@/domain/money";
+import { serverEnv } from "@/lib/env";
 
 export interface CheckoutLineSummary {
   name: string;
@@ -25,6 +27,8 @@ export interface CheckoutConfirmation {
 
 export type CheckoutActionResult =
   | { status: "success"; confirmation: CheckoutConfirmation }
+  /** Phase 10 Gate 10B — an online (TWINT/CARD) order was created; the browser must navigate to `redirectUrl` (the real Saferpay Payment Page), never treat this as payment success. */
+  | { status: "redirect"; redirectUrl: string }
   | { status: "validation-error"; fieldErrors: Partial<Record<string, string[]>> }
   | { status: "cart-error"; message: string }
   | { status: "error"; message: string };
@@ -80,6 +84,25 @@ export async function submitCheckoutAction(payload: unknown): Promise<CheckoutAc
       message:
         "Certains articles de votre panier ne sont plus disponibles. Veuillez retourner au panier.",
     };
+  }
+
+  if (parsed.data.paymentMethod === "TWINT" || parsed.data.paymentMethod === "CARD") {
+    try {
+      const { redirectUrl } = await initiateOnlinePayment(
+        result.order.id,
+        parsed.data.paymentMethod,
+        `${serverEnv.BETTER_AUTH_URL}/commande/retour`,
+      );
+      return { status: "redirect", redirectUrl };
+    } catch {
+      // Never leak provider/SQL details to the customer (docs/09-SECURITY.md §39).
+      // The Order itself remains valid and NEW — retry is possible.
+      return {
+        status: "error",
+        message:
+          "Le paiement en ligne n'a pas pu être initié. Veuillez réessayer ou choisir le paiement au membre.",
+      };
+    }
   }
 
   let sellerName: string | null = null;

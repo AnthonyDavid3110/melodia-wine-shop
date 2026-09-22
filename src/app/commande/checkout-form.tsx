@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Combobox } from "@/components/ui/combobox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Body, BodySmall, FieldLabel, H2, H3, Price } from "@/components/ui/typography";
 import { useCart } from "@/components/cart/cart-context";
 import { cartSubtotal, resolveCartAgainstCatalog } from "@/domain/cart/cart";
@@ -37,15 +38,19 @@ const FIELD_ORDER = [
 export function CheckoutForm({
   catalog,
   sellerOptions,
+  onlinePaymentAvailable,
 }: {
   catalog: Extract<PublicCatalog, { state: "active" }>;
   sellerOptions: { value: string; label: string }[];
+  /** Phase 10 Gate 10B — online payment is offered only when the server has real Saferpay configuration (docs/10 §19). */
+  onlinePaymentAvailable: boolean;
 }) {
   const { cart, hydrated, clearCart } = useCart();
   const idempotencyKeyRef = React.useRef<string>(crypto.randomUUID());
   const fieldRefs = React.useRef<Partial<Record<string, HTMLInputElement>>>({});
 
   const [sellerId, setSellerId] = React.useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = React.useState<"SELLER" | "TWINT" | "CARD">("SELLER");
   const [submitting, setSubmitting] = React.useState(false);
   const [fieldErrors, setFieldErrors] = React.useState<Partial<Record<string, string[]>>>({});
   const [cartError, setCartError] = React.useState<string | null>(null);
@@ -79,6 +84,7 @@ export function CheckoutForm({
       campaignId: cart.campaignId,
       sellerId,
       idempotencyKey: idempotencyKeyRef.current,
+      paymentMethod,
     };
 
     setSubmitting(true);
@@ -87,13 +93,25 @@ export function CheckoutForm({
 
     const result = await submitCheckoutAction(payload);
 
-    setSubmitting(false);
-
     if (result.status === "success") {
+      setSubmitting(false);
       clearCart();
       setConfirmation(result.confirmation);
       return;
     }
+
+    if (result.status === "redirect") {
+      // The Order already exists (NEW, PENDING) — the cart's job is
+      // done regardless of what happens next on Saferpay's page
+      // (Gate 10B §18). Keep `submitting` true: the browser is about to
+      // navigate away, and re-enabling the button would only invite a
+      // confusing second click.
+      clearCart();
+      window.location.assign(result.redirectUrl);
+      return;
+    }
+
+    setSubmitting(false);
 
     if (result.status === "validation-error") {
       setFieldErrors(result.fieldErrors);
@@ -295,9 +313,39 @@ export function CheckoutForm({
         <H2 id="checkout-payment-heading" className="text-xl">
           Mode de paiement
         </H2>
-        <div className="border-border max-w-sm border px-4 py-3">
-          <FieldLabel>Paiement au membre lors de la livraison</FieldLabel>
-        </div>
+        <RadioGroup
+          value={paymentMethod}
+          onValueChange={(value) => setPaymentMethod(value as "SELLER" | "TWINT" | "CARD")}
+          className="max-w-sm gap-3"
+        >
+          {onlinePaymentAvailable ? (
+            <>
+              <label className="border-border has-[[data-state=checked]]:border-accent flex items-center gap-3 border px-4 py-3">
+                <RadioGroupItem value="TWINT" id="payment-twint" />
+                <span className="flex flex-col">
+                  <FieldLabel>TWINT</FieldLabel>
+                  <BodySmall className="text-foreground/60">Paiement sécurisé en ligne</BodySmall>
+                </span>
+              </label>
+              <label className="border-border has-[[data-state=checked]]:border-accent flex items-center gap-3 border px-4 py-3">
+                <RadioGroupItem value="CARD" id="payment-card" />
+                <span className="flex flex-col">
+                  <FieldLabel>Carte bancaire</FieldLabel>
+                  <BodySmall className="text-foreground/60">Visa / Mastercard</BodySmall>
+                </span>
+              </label>
+            </>
+          ) : null}
+          <label className="border-border has-[[data-state=checked]]:border-accent flex items-center gap-3 border px-4 py-3">
+            <RadioGroupItem value="SELLER" id="payment-seller" />
+            <span className="flex flex-col">
+              <FieldLabel>Paiement au membre</FieldLabel>
+              <BodySmall className="text-foreground/60">
+                Réglez votre commande lors de la livraison
+              </BodySmall>
+            </span>
+          </label>
+        </RadioGroup>
       </section>
 
       <section aria-labelledby="checkout-review-heading" className="flex flex-col gap-4">

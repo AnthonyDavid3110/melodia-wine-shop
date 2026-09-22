@@ -46,11 +46,25 @@ export function canReassignSeller(order: Pick<OrderGuardInput, "sellerSettlement
  * order on a non-cancelled order may transition — this is the only
  * valid entry into the PAID state in Phase 8 (BR-PAY-006/007: no
  * automatic/provider marking for the offline path).
+ *
+ * Phase 10 addition: excludes `NEW` orders. An offline (SELLER) order
+ * is never `NEW` — `createOrder()` puts it straight to `CONFIRMED`
+ * (Phase 7) — while an online (Saferpay) order starts `NEW` and only
+ * ever leaves `PENDING` once `confirmOnlinePayment()`'s own trusted
+ * transaction marks it `PAID` (at which point this guard would already
+ * be false via the `customerPaymentStatus` check alone). So `status !==
+ * "NEW"` is a precise, sufficient signal to keep this manual admin
+ * action off online orders entirely — docs/06-ADMIN-SPEC.md §20:
+ * "Never add a manual 'mark online payment paid' action."
  */
 export function canMarkCustomerPaymentReceived(
   order: Pick<OrderGuardInput, "status" | "customerPaymentStatus">,
 ): boolean {
-  return order.status !== "CANCELLED" && order.customerPaymentStatus === "PENDING";
+  return (
+    order.status !== "CANCELLED" &&
+    order.status !== "NEW" &&
+    order.customerPaymentStatus === "PENDING"
+  );
 }
 
 /**

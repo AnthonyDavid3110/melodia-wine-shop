@@ -28,5 +28,11 @@ export default defineConfig({
     command: "pnpm dev",
     url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
+    // Phase 10 Gate 10B: selects the fake Saferpay test provider
+    // (src/infrastructure/payments/fake-test-provider.ts) instead of
+    // the real Saferpay client — double-gated with a NODE_ENV check in
+    // online-payments.ts, so this can never activate in production even
+    // if the variable leaked into a real deployment's environment.
+    env: { E2E_FAKE_PAYMENT_PROVIDER: "true" },
   },
 });

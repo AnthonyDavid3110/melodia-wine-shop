@@ -726,32 +726,48 @@ still awaiting provider confirmation), `customerPaymentStatus: PENDING`,
 
 Payment integration must use an application abstraction.
 
-Conceptually:
+Provider-specific code should stay isolated from the rest of the
+application rather than scattered throughout checkout/admin code.
 
-    PaymentProvider
+## Phase 10 Gate 10B implementation (adopted)
 
-        createPayment()
-        getPaymentStatus()
-        handleWebhook()
-        refundPayment()
+The originally-sketched generic `createPayment()`/`handleWebhook()`/
+`getPaymentStatus()`/`refundPayment()` shape was deliberately **not**
+implemented as written — Saferpay's actual Payment Page protocol has no
+signed webhook to "handle" (see `08-PAYMENTS.md` §70.1), so forcing that
+shape onto it would misrepresent the real mechanism. The implemented
+boundary instead mirrors Saferpay's own two operations:
 
-Business code should interact with this abstraction rather than scattering
-provider-specific calls throughout the application.
+    src/infrastructure/payments/saferpay-client.ts
+        initializePaymentPage()
+        assertPaymentPage()
 
-Example:
+    src/infrastructure/payments/online-payments.ts
+        initiateOnlinePayment()     — orchestration: validate, create
+                                       local Payment attempt, call
+                                       Initialize, persist session id
+        confirmOnlinePayment()      — orchestration: call Assert,
+                                       normalize, apply the trusted
+                                       success/failure transition
 
-    CheckoutService
-        │
-        ▼
-    PaymentProvider
-        │
-        ├── Stripe adapter
-        │
-        └── Worldline adapter
+The domain layer (`src/domain/payments/`) never depends on raw Saferpay
+response types — `saferpay-client.ts` translates every response into a
+small explicit `SaferpayAssertOutcome` before any domain/guard code sees
+it (docs/04-DATA-MODEL.md §19's "provider-specific states must be
+translated into application domain states" principle).
 
-Only one provider needs to be implemented in V1.
+A double-gated fake test provider
+(`src/infrastructure/payments/fake-test-provider.ts`) implements the
+identical function signatures for deterministic Playwright coverage —
+selected only when `NODE_ENV !== "production"` AND an explicit
+`E2E_FAKE_PAYMENT_PROVIDER=true` opt-in are both true (set only in
+`playwright.config.ts`'s own `webServer.env`), so it can never activate
+outside a test run.
 
-The abstraction exists to keep provider-specific code isolated.
+`refundPayment()` was intentionally not added to the interface — refunds
+are out of scope for Gate 10B (docs/08-PAYMENTS.md TBD-PAY-005) and
+adding the surface now would be speculative against an unconfirmed
+production contract.
 
 ---
 
@@ -1648,13 +1664,12 @@ Do not create ADRs for trivial implementation details.
 
 Better Auth 1.7.5. See the DECIDED entry above.
 
-## TBD-ARCH-004 — Payment provider
+## TBD-ARCH-004 — Payment provider — RESOLVED for architecture (Phase 10 Gate 10B)
 
-Evaluate providers supporting:
-
-    TWINT + cards
-
-This decision is detailed in `08-PAYMENTS.md`.
+Worldline / Saferpay JSON API / Payment Page (hosted redirect),
+supporting TWINT + Visa + Mastercard. Full detail in `08-PAYMENTS.md`
+§4/§70. Production account/contract/credentials remain a deployment
+dependency (TBD-PAY-001 in `08-PAYMENTS.md`), not an architecture TBD.
 
 ## TBD-ARCH-005 — Transactional email
 

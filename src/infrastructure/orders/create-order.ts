@@ -23,6 +23,17 @@ export interface CreateOrderInput extends CustomerInfoInput {
   campaignId?: string;
   sellerId: string | null;
   idempotencyKey: string;
+  /**
+   * Phase 10 Gate 10B. `SELLER` (default) preserves the exact Phase 7
+   * behaviour byte-for-byte — MANUAL entry never sets this. `TWINT`/
+   * `CARD` create the Order alone, in `NEW` status, with no Payment row
+   * at all: the first online Payment attempt is created separately by
+   * `initiateOnlinePayment()` right after, since starting a Saferpay
+   * session is an external HTTP call that must never happen inside this
+   * function's database transaction (docs/05-ARCHITECTURE.md §21 vs.
+   * Gate 10B §10's external-call transaction-boundary requirement).
+   */
+  paymentMethod?: "SELLER" | "TWINT" | "CARD";
 }
 
 export type OrderCreationActor = { type: "SYSTEM" } | { type: "ADMIN"; adminUserId: string };
@@ -156,6 +167,8 @@ export async function createOrder(
     const orderNumber = await reserveOrderNumber(tx, year);
 
     const now = new Date();
+    const paymentMethod = input.paymentMethod ?? "SELLER";
+    const isOnline = paymentMethod === "TWINT" || paymentMethod === "CARD";
 
     let insertedOrder: OrderRecord;
     try {
@@ -179,10 +192,14 @@ export async function createOrder(
             currency: "CHF",
             subtotalAmount: total,
             totalAmount: total,
-            status: "CONFIRMED",
+            // Gate 10B §4 approved semantics: an online order starts NEW,
+            // with sellerSettlementStatus NOT_APPLICABLE, and no
+            // confirmedAt — CONFIRMED/confirmedAt only happen at the
+            // trusted provider-success transaction (never here).
+            status: isOnline ? "NEW" : "CONFIRMED",
             customerPaymentStatus: "PENDING",
-            sellerSettlementStatus: "PENDING",
-            confirmedAt: now,
+            sellerSettlementStatus: isOnline ? "NOT_APPLICABLE" : "PENDING",
+            confirmedAt: isOnline ? null : now,
           })
           .returning();
         if (!created) {
@@ -238,14 +255,20 @@ export async function createOrder(
       }
     }
 
-    await tx.insert(payments).values({
-      orderId: insertedOrder.id,
-      method: "SELLER",
-      provider: "OFFLINE",
-      amount: total,
-      currency: "CHF",
-      status: "PENDING",
-    });
+    // Online orders get no Payment row here — the first attempt is
+    // created by `initiateOnlinePayment()`, outside this transaction,
+    // once the Saferpay session actually exists (see the paymentMethod
+    // doc comment on CreateOrderInput above).
+    if (!isOnline) {
+      await tx.insert(payments).values({
+        orderId: insertedOrder.id,
+        method: "SELLER",
+        provider: "OFFLINE",
+        amount: total,
+        currency: "CHF",
+        status: "PENDING",
+      });
+    }
 
     await tx.insert(orderEvents).values({
       orderId: insertedOrder.id,

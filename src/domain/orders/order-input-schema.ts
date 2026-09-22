@@ -47,6 +47,8 @@ export const orderCreationInputSchema = customerInfoSchema.extend({
   campaignId: z.string().min(1).optional(),
   sellerId: z.string().min(1).nullable(),
   idempotencyKey: z.string().uuid("Jeton de soumission invalide."),
+  /** Phase 10 Gate 10B. Defaults to SELLER — MANUAL entry never sends this field at all. */
+  paymentMethod: z.enum(["SELLER", "TWINT", "CARD"]).default("SELLER"),
 });
 
 export type OrderCreationInput = z.infer<typeof orderCreationInputSchema>;

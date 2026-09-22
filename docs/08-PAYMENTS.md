@@ -77,16 +77,21 @@ Payment-provider fees are considered an ECM campaign expense.
 
 # 4. Online payment provider
 
-Preferred V1 provider:
+V1 provider:
 
     Worldline
 
-Expected product:
+Product (RESOLVED, Phase 10 Gate 10B — see §70 for the full implemented
+protocol):
 
-    Worldline E-Payments / Saferpay
+    Worldline E-Payments, technical platform Saferpay,
+    Saferpay JSON API, Payment Page (hosted redirect)
 
-Final onboarding and contract details must be confirmed before production
-integration.
+Final onboarding and production contract details (ECM merchant account,
+production credentials, contractual pricing) must still be confirmed
+before production integration — see TBD-PAY-001. Development and testing
+use the official Saferpay TEST environment and a real Saferpay TEST
+account.
 
 The application must not assume that a payment method is available merely
 because Worldline supports it generally.
@@ -1252,18 +1257,22 @@ Accounting exports/integration may be considered later if needed.
 
 Before implementing production Worldline integration, confirm:
 
-    ECM merchant account approved
-    E-Payments/Saferpay product selected
-    TWINT activated
-    Visa activated
-    Mastercard activated
-    test environment available
-    API credentials available
-    production credentials available
-    callback/webhook mechanism confirmed
-    refund mechanism confirmed
-    merchant back-office access confirmed
-    contractual transaction pricing confirmed
+    [ ] ECM merchant account approved                — pending
+    [x] E-Payments/Saferpay product selected          — Saferpay JSON API, Payment Page (Phase 10 Gate 10B)
+    [x] TWINT activated                               — confirmed on TEST terminal
+    [x] Visa activated                                — confirmed on TEST terminal
+    [x] Mastercard activated                          — confirmed on TEST terminal
+    [x] test environment available                    — real Saferpay TEST account in use
+    [x] API credentials available                     — TEST JSON API Basic Authentication
+    [ ] production credentials available               — pending
+    [x] callback/notification mechanism confirmed      — Assert-driven, no signed webhook (§70.1)
+    [ ] refund mechanism confirmed                      — out of scope for Gate 10B
+    [ ] merchant back-office access confirmed           — pending
+    [ ] contractual transaction pricing confirmed       — pending
+
+TWINT/Visa/Mastercard activation above is confirmed on the Saferpay TEST
+eCommerce terminal only — production activation on the real merchant
+terminal remains pending (TBD-PAY-001).
 
 Do not guess provider configuration.
 
@@ -1340,45 +1349,173 @@ Do not implement unless scope changes:
 
 ## TBD-PAY-001 — Worldline contract
 
-Confirm exact ECM commercial offer and contractual pricing.
+Still open. ECM merchant account, contract and contractual pricing are
+not yet finalized — a deployment/onboarding dependency, not an
+architecture TBD. Nothing in the Gate 10B implementation depends on it;
+a real Saferpay TEST account (customer/terminal numbers, JSON API Basic
+Authentication) is used for development and is sufficient to build and
+test the full integration.
 
-## TBD-PAY-002 — Worldline product/API
+## TBD-PAY-002 — Worldline product/API — RESOLVED (Phase 10 Gate 10B)
 
-Confirm exact E-Payments/Saferpay API product used for the custom Next.js
-integration.
+**Resolution:** Saferpay, the technical payment platform behind
+Worldline's Swiss e-commerce offer ("Worldline E-Payments"). Integration
+uses the **Saferpay JSON API** (Spec-Version 1.54,
+https://saferpay.github.io/jsonapi/), specifically the **Payment Page**
+interface: `PaymentPage/Initialize` and `PaymentPage/Assert`. See §70
+below for the full implemented protocol.
 
-## TBD-PAY-003 — Enabled methods
+## TBD-PAY-003 — Enabled methods — RESOLVED for TEST (Phase 10 Gate 10B)
 
-Required:
+Confirmed available on the Saferpay TEST eCommerce terminal:
 
-    TWINT
-    Visa
-    Mastercard
+    TWINT Simulator — CHF
+    Mastercard Saferpay Test — CHF, 3-D Secure
+    Visa Saferpay Test — CHF, 3-D Secure
 
-Determine whether to additionally enable:
+Apple Pay, PostFinance Pay, and every other method the TEST account may
+list are deliberately **not** enabled — the application restricts
+`PaymentMethods` on every `Initialize` call to exactly `["TWINT"]` or
+`["VISA", "MASTERCARD"]` (never a broader or unrestricted list).
+Production activation of TWINT/Visa/Mastercard on the real merchant
+terminal remains a deployment dependency (TBD-PAY-001).
 
-    Apple Pay
-    PostFinance Pay
+## TBD-PAY-004 — Payment page UX — RESOLVED (Phase 10 Gate 10B)
 
-## TBD-PAY-004 — Payment page UX
+**Resolution:** hosted **Payment Page** (redirect model) — the customer
+is redirected to Saferpay's own hosted form; Melodia never receives or
+transmits raw card data (minimizes PCI scope, per this TBD's own stated
+preference).
 
-Determine whether the selected Worldline integration uses:
-
-    hosted payment page
-    embedded provider component
-    another provider-supported flow
-
-Prefer the option that minimizes PCI scope while maintaining good mobile
-UX.
+Melodia's own checkout presents **three separate customer-facing
+choices** — TWINT, Carte bancaire, Paiement au membre — matching the
+labels already recommended in §2 above, rather than one generic
+"Paiement en ligne" option deferring method selection to Saferpay's
+hosted page. Reasoning: `Payment.method` (TWINT/CARD) must be known at
+the moment the local Payment attempt is created, before the customer
+ever reaches Saferpay's page, and Saferpay's `PaymentMethods` restriction
+parameter (`["TWINT"]` vs `["VISA", "MASTERCARD"]`) lets each Melodia
+choice cleanly initialize a session scoped to exactly that method — no
+provider-owned method-selection UI is duplicated by this, since the
+actual card entry form (and 3-D Secure) still happens entirely on
+Saferpay's own page for the "Carte bancaire" choice.
 
 ## TBD-PAY-005 — Refund UI
 
-Define exact administrator workflow for issuing and confirming full
-refunds.
+Still open — explicitly out of scope for Gate 10B (§21 of the gate
+brief). No refund API, button, or partial-refund workflow was
+implemented; `Payment.status` values `REFUNDED`/`PARTIALLY_REFUNDED`
+remain unused.
 
 ## TBD-PAY-006 — Abandoned order policy
 
-Determine whether unpaid abandoned online orders are automatically
-cancelled after a defined period.
+Still open, unchanged — not required for initial launch. A `NEW`,
+never-confirmed online order remains in the database indefinitely under
+Gate 10B; automatic cleanup was explicitly out of scope (§17 of the gate
+brief).
 
-This is not required for initial launch.
+---
+
+# 70. Saferpay Payment Page — implemented protocol (Phase 10 Gate 10B)
+
+This section documents the mechanics actually implemented, confirmed
+against the official documentation at https://saferpay.github.io/jsonapi/
+(Spec-Version 1.54) rather than assumed from a generic webhook model.
+
+## 70.1 No signed webhook
+
+Saferpay's Payment Page protocol does **not** work like a conventional
+signed-event webhook. There is:
+
+- **one** `ReturnUrl` for every outcome (success, failure, cancellation
+  all redirect the browser to the same URL) — not separate success/fail
+  URLs;
+- optional, **unsigned** `SuccessNotifyUrl`/`FailNotifyUrl` server-to-
+  server pings, which carry no authoritative payload — they are only a
+  hint to call `PaymentPage/Assert`;
+- **`PaymentPage/Assert`** (queried with the session `Token` returned by
+  `Initialize`) as the **sole authoritative result lookup**. A
+  successful call (HTTP 200) returns `Transaction.Status`
+  (`AUTHORIZED`/`CAPTURED`, or `PENDING` for Account-to-Account methods
+  this project doesn't use); a failed, declined, or payer-aborted
+  transaction is instead an HTTP 400+ error response carrying an
+  `ErrorName` (`TRANSACTION_ABORTED` for a payer cancellation,
+  `TRANSACTION_DECLINED` for a processor decline, etc.).
+
+Gate 10B's implementation therefore calls `Assert` directly from the
+public return route when the browser lands on it (`/commande/retour`),
+rather than relying on `NotifyUrl`. `NotifyUrl` was not registered on
+`Initialize` for this gate — it requires a publicly reachable HTTPS
+callback endpoint, which a local development server cannot provide (see
+the Gate 10B final report for the full explanation); this is a known,
+reported gap for a future gate once a publicly reachable deployment
+exists, not a silently accepted risk.
+
+## 70.2 Opaque return-correlation token
+
+The public `ReturnUrl` (`https://.../commande/retour?rt=<token>`) never
+carries the Saferpay `Token` itself, the human order number, or the
+database order id. It carries a dedicated, server-generated, 256-bit
+opaque token stored on the `payments` table (`return_token`, unique,
+nullable) — Payment-level, not Order-level, because each online payment
+attempt gets its own Saferpay session and therefore its own return
+correlation.
+
+## 70.3 Order/Payment lifecycle
+
+    Order created (online)
+        status = NEW
+        customerPaymentStatus = PENDING
+        sellerSettlementStatus = NOT_APPLICABLE
+        no Payment row yet
+            ↓
+    initiateOnlinePayment()
+        Payment created: PENDING, provider SAFERPAY
+        PaymentPage/Initialize called (outside any DB transaction)
+        Payment.providerSessionId = Saferpay Token
+            ↓
+    customer redirected to Saferpay's hosted Payment Page
+            ↓
+    browser returns to /commande/retour?rt=<token>
+        (informational only — never marks anything paid by itself)
+            ↓
+    confirmOnlinePayment() calls PaymentPage/Assert
+            ↓
+    trusted success:                  trusted failure/cancellation:
+        Payment -> SUCCEEDED              Payment -> FAILED/CANCELLED
+        Order.customerPaymentStatus       Order remains NEW/PENDING
+            -> PAID                       retry creates a NEW Payment
+        Order.status NEW -> CONFIRMED     row on the SAME Order — never
+        Order.confirmedAt set             a second Order
+        sellerSettlementStatus stays
+            NOT_APPLICABLE
+        OrderEvent PAYMENT_CONFIRMED_BY_PROVIDER (actor PAYMENT_PROVIDER)
+
+Multiple Payment attempts per Order are fully supported (no uniqueness
+constraint on `payments.orderId`) — e.g. a declined card attempt
+followed by a successful TWINT retry produces two rows: `FAILED` then
+`SUCCEEDED`. A terminal `FAILED`/`CANCELLED` row is never mutated back
+into an active state.
+
+## 70.4 PaymentEvent usage
+
+`payment_events`' pre-existing `unique(provider, providerEventId)`
+constraint (built in Phase 2, unused until now) is used with Saferpay's
+own `Transaction.Id` as `providerEventId` — a genuinely provider-issued,
+stable identifier for a specific completed transaction, recorded once
+per successful `Assert` result. A minimal, honest adaptation rather than
+a literal webhook-event log: Saferpay's protocol here is a query/result
+lookup, not a pushed event stream, so there is no separate "duplicate
+webhook delivery" to deduplicate — the constraint instead guarantees
+that repeated `Assert` calls returning the same transaction never write
+duplicate audit rows or duplicate `OrderEvent`s (the real idempotency
+boundary is the trusted-success transaction itself, guarded by
+`SELECT ... FOR UPDATE` on the Payment row).
+
+## 70.5 Authentication
+
+JSON API Basic Authentication, credentials created in the Saferpay
+Backoffice (Settings > JSON API basic authentication). Stored as two
+separate raw components (`SAFERPAY_API_USERNAME` /
+`SAFERPAY_API_PASSWORD`), never a precomputed `Authorization: Basic ...`
+header — the application constructs the header server-side.

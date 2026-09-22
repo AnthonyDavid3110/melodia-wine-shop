@@ -65,6 +65,12 @@ describe("canMarkCustomerPaymentReceived", () => {
     ).toBe(false);
   });
 
+  it("blocks a NEW (online-payment-awaiting) order — no manual mark-paid for Saferpay orders", () => {
+    expect(
+      canMarkCustomerPaymentReceived({ status: "NEW", customerPaymentStatus: "PENDING" }),
+    ).toBe(false);
+  });
+
   it("blocks marking a cancelled order", () => {
     expect(
       canMarkCustomerPaymentReceived({ status: "CANCELLED", customerPaymentStatus: "PENDING" }),

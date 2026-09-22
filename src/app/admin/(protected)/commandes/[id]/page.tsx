@@ -7,6 +7,7 @@ import { formatSellerName } from "@/domain/sellers/format-seller-name";
 import { formatCHF, money } from "@/domain/money";
 import {
   customerPaymentStatusLabel,
+  paymentAttemptStatusLabel,
   orderSourceLabel,
   orderStatusLabel,
   paymentMethodLabel,
@@ -37,6 +38,8 @@ const EVENT_LABELS: Record<string, string> = {
   ORDER_PREPARED: "Commande préparée",
   ORDER_HANDED_TO_SELLER: "Commande remise au vendeur",
   ORDER_DELIVERED: "Commande livrée",
+  PAYMENT_CONFIRMED_BY_PROVIDER: "Paiement confirmé par Saferpay",
+  PAYMENT_ANOMALY_DETECTED: "Anomalie de paiement détectée",
 };
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -192,6 +195,63 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               orderId={order.id}
               formattedAmount={formatCHF(money(order.totalAmount))}
             />
+          </div>
+        ) : null}
+
+        {payments.some((payment) => payment.provider === "SAFERPAY") ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-body-sm font-medium">Tentatives de paiement en ligne</p>
+            <div className="border-border overflow-x-auto border">
+              <table className="w-full min-w-[560px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-border bg-surface-muted border-b text-left">
+                    <th className="px-4 py-3 font-medium">Méthode</th>
+                    <th className="px-4 py-3 font-medium">Montant</th>
+                    <th className="px-4 py-3 font-medium">Statut</th>
+                    <th className="px-4 py-3 font-medium">Référence</th>
+                    <th className="px-4 py-3 font-medium">Horodatage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments
+                    .filter((payment) => payment.provider === "SAFERPAY")
+                    .map((payment) => {
+                      const timestamp = payment.paidAt ?? payment.failedAt ?? payment.createdAt;
+                      return (
+                        <tr key={payment.id} className="border-border border-b last:border-b-0">
+                          <td className="px-4 py-3">{paymentMethodLabel(payment.method)}</td>
+                          <td className="px-4 py-3 tabular-nums">
+                            {formatCHF(money(payment.amount))}
+                          </td>
+                          <td className="px-4 py-3">
+                            <StatusBadge
+                              tone={
+                                payment.status === "SUCCEEDED"
+                                  ? "success"
+                                  : payment.status === "FAILED" || payment.status === "CANCELLED"
+                                    ? "danger"
+                                    : "neutral"
+                              }
+                            >
+                              {paymentAttemptStatusLabel(payment.status)}
+                            </StatusBadge>
+                          </td>
+                          <td className="text-muted-foreground px-4 py-3 font-mono text-xs">
+                            {payment.providerPaymentId ?? "—"}
+                          </td>
+                          <td className="text-muted-foreground px-4 py-3 whitespace-nowrap">
+                            {timestamp.toLocaleDateString("fr-CH")}{" "}
+                            {timestamp.toLocaleTimeString("fr-CH", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
       </section>

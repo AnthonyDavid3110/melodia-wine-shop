@@ -62,6 +62,39 @@ export const serverSchema = z.object({
    * https://vins.ecmelodia.ch in production.
    */
   BETTER_AUTH_URL: z.string().url().optional(),
+
+  /**
+   * Saferpay JSON API configuration (Phase 10 Gate 10B,
+   * docs/08-PAYMENTS.md). Optional here for the same "don't break
+   * unrelated module loads" reason as DATABASE_URL — the Saferpay
+   * client (`src/infrastructure/payments/saferpay-client.ts`) asserts
+   * every one of these is present at the point a request is actually
+   * made, not at module load time. Selects between Saferpay's TEST
+   * (`https://test.saferpay.com/api`) and LIVE
+   * (`https://www.saferpay.com/api`) base URL — never inferred from
+   * `NODE_ENV`, since a production deployment may still need to run
+   * against TEST during onboarding (mirrors the `DATABASE_DRIVER`
+   * "never inferred from the platform" principle).
+   */
+  SAFERPAY_ENVIRONMENT: z.enum(["test", "live"]).optional(),
+
+  /** Saferpay merchant customer number (not a secret — verified non-sensitive per the Gate 10B brief). */
+  SAFERPAY_CUSTOMER_ID: z.string().optional(),
+
+  /** Saferpay eCommerce terminal number (not a secret — verified non-sensitive per the Gate 10B brief). */
+  SAFERPAY_TERMINAL_ID: z.string().optional(),
+
+  /**
+   * JSON API Basic Authentication username, created in the Saferpay
+   * Backoffice under Settings > JSON API basic authentication
+   * (https://saferpay.github.io/jsonapi/). Kept as a separate raw
+   * component — never a precomputed `Authorization: Basic ...` header —
+   * so the Saferpay client can construct the header safely server-side.
+   */
+  SAFERPAY_API_USERNAME: z.string().optional(),
+
+  /** JSON API Basic Authentication password — see SAFERPAY_API_USERNAME. Never logged, never sent to the browser. */
+  SAFERPAY_API_PASSWORD: z.string().optional(),
 });
 
 /**
@@ -95,6 +128,11 @@ export const serverEnv = parseEnv(serverSchema, {
   DATABASE_DRIVER: process.env.DATABASE_DRIVER,
   BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
   BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+  SAFERPAY_ENVIRONMENT: process.env.SAFERPAY_ENVIRONMENT,
+  SAFERPAY_CUSTOMER_ID: process.env.SAFERPAY_CUSTOMER_ID,
+  SAFERPAY_TERMINAL_ID: process.env.SAFERPAY_TERMINAL_ID,
+  SAFERPAY_API_USERNAME: process.env.SAFERPAY_API_USERNAME,
+  SAFERPAY_API_PASSWORD: process.env.SAFERPAY_API_PASSWORD,
 });
 
 export const publicEnv = parseEnv(publicSchema, {});

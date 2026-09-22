@@ -30,6 +30,19 @@ export const payments = pgTable(
     status: paymentStatusEnum("status").notNull().default("PENDING"),
     providerPaymentId: text("provider_payment_id"),
     providerSessionId: text("provider_session_id"),
+    /**
+     * Phase 10 Gate 10B — the opaque, cryptographically-random public
+     * correlation token used in the Saferpay `ReturnUrl` (never the
+     * Saferpay `Token` itself, and never the human order number or the
+     * Order's database id alone — docs/08-PAYMENTS.md §17,
+     * docs/09-SECURITY.md §22/§23). Payment-level, not Order-level,
+     * because each online payment attempt gets its own Saferpay session
+     * and therefore needs its own return correlation. Nullable + unique:
+     * only online (Saferpay) attempts ever receive one; Postgres treats
+     * multiple NULLs as distinct, matching the `orders.idempotencyKey`
+     * precedent (docs/04-DATA-MODEL.md §14a).
+     */
+    returnToken: text("return_token"),
     ...timestampColumns(),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
@@ -38,6 +51,7 @@ export const payments = pgTable(
   (table) => [
     check("payments_amount_non_negative", sql`${table.amount} >= 0`),
     index("payments_order_id_idx").on(table.orderId),
+    unique("payments_return_token_unique").on(table.returnToken),
   ],
 );
 
