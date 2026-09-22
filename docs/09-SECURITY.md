@@ -553,6 +553,34 @@ cookie/session authentication for a forged request to exploit, and even
 a successfully "forged" call only ever triggers a harmless re-Assert,
 never a forced state change.
 
+## Phase 10 Gate 10C-B2 verification (adopted)
+
+The properties above were re-confirmed against a real, publicly
+reachable staging deployment and the real Saferpay TEST environment
+(never simulated) — see `08-PAYMENTS.md` §73 for the full acceptance
+results:
+
+- the hosted Payment Page kept card/TWINT entry entirely on Saferpay's
+  own page — the staging deployment never received or transmitted
+  PAN/CVV at any point;
+- Basic Authentication credentials (`SAFERPAY_API_USERNAME`/
+  `SAFERPAY_API_PASSWORD`) remained server-side environment
+  configuration only, never observed in browser-reachable code or
+  responses;
+- the callback token was confirmed to function purely as routing/
+  correlation, not as proof of payment — the notify route's own call to
+  `PaymentPage/Assert` is what determined the outcome in every case,
+  independently re-verified against Saferpay's own authoritative record
+  for all three scenarios in `08-PAYMENTS.md` §73;
+- both `NotifyUrl` and `ReturnUrl` were independently confirmed to reach
+  the identical trusted-success code path via `Assert`, including under
+  a genuine, unsuppressed race (§73.2);
+- a real aborted Saferpay session never produced a locally paid/
+  confirmed Order (§73.3), confirming no local success is ever derived
+  from browser state alone;
+- staging used Saferpay TEST credentials exclusively — no production
+  credential or production merchant terminal was used at any point.
+
 ---
 
 # 27. Webhook secrets
@@ -1437,11 +1465,15 @@ Before launch verify:
 
     [ ] Admin authorization tested
 
-    [ ] Payment sandbox tests completed
+    [x] Payment sandbox tests completed — Phase 10 Gate 10C-B2, real
+        Saferpay TEST TWINT / Visa+3DS / cancellation acceptance tests
+        against a real staging deployment (08-PAYMENTS.md §73)
 
     [ ] Production Worldline callback verification enabled
 
-    [ ] Duplicate payment callback tested
+    [x] Duplicate payment callback tested — proven under a genuine,
+        unsuppressed ReturnUrl/NotifyUrl race, not only a simulated
+        duplicate (08-PAYMENTS.md §73.2)
 
     [ ] Payment amount mismatch tested
 
@@ -1566,6 +1598,11 @@ Use managed platform security where appropriate.
   cookie absence); the Data Access Layer (`requireAdmin()`/
   `getAdminOrNull()` in `src/lib/auth/dal.ts`) is the sole authorization
   authority and is called directly by every protected route.
+- DECIDED: Saferpay `NotifyUrl` and `ReturnUrl` were both independently
+  verified, against a real staging deployment and the real Saferpay TEST
+  environment, to derive payment truth only from `PaymentPage/Assert` —
+  never from the callback/redirect request itself (Phase 10 Gate
+  10C-B2). See `08-PAYMENTS.md` §73.
 
 ---
 

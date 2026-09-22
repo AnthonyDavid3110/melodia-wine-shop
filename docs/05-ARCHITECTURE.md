@@ -356,6 +356,17 @@ Production is not yet deployed. Nothing in this document should be
 read as confirming a live production database exists — see
 `10-IMPLEMENTATION-PLAN.md` Phase 15 for production readiness.
 
+## Staging database (Phase 10 Gate 10C-B2)
+
+A temporary, isolated Neon PostgreSQL project was created solely to give
+a real Saferpay TEST `NotifyUrl` callback a publicly reachable target to
+call — see `08-PAYMENTS.md` §73. It held only fictional seed/test data,
+was migrated and seeded the same way any Neon-driver deployment is
+(`DATABASE_DRIVER=neon`, `pnpm db:migrate` / `pnpm db:seed`), and is not,
+and never became, the production database. It remains alive only until
+final review/cleanup and must not be read as a rehearsal of permanent
+production data or infrastructure.
+
 ## Database driver selection
 
 DECIDED: the application supports two PostgreSQL drivers behind one
@@ -1281,6 +1292,18 @@ Reasons:
 Final hosting decision should still consider expected costs and external
 service compatibility.
 
+## Staging deployment (Phase 10 Gate 10C-B2)
+
+A temporary Vercel project (Production environment, no custom domain,
+default/unprotected Deployment Protection scope — justified because the
+project held only 100% fictional seed data) was created solely to give
+Saferpay's `NotifyUrl` a real, publicly reachable HTTPS endpoint, which
+`localhost` cannot provide — see `08-PAYMENTS.md` §73. It is disposable
+validation infrastructure, not a preview of the eventual
+`vins.ecmelodia.ch` production deployment (Phase 15,
+`10-IMPLEMENTATION-PLAN.md` §86/§87), and it does not participate in DNS
+for `vins.ecmelodia.ch` or the existing Wix site.
+
 ---
 
 # 43. Domain architecture
@@ -1694,6 +1717,11 @@ Do not create ADRs for trivial implementation details.
   `BETTER_AUTH_URL` (a distinct concern that only incidentally held the
   same value in Gate 10B). `src/lib/app-url.ts`'s `appUrl()` builds
   every such URL via the `URL` constructor, never string concatenation.
+- DECIDED: A temporary, isolated Neon project and a temporary Vercel
+  deployment were used only to give Saferpay's `NotifyUrl` a real,
+  publicly reachable HTTPS endpoint for Phase 10 Gate 10C-B2 acceptance
+  testing — disposable staging validation infrastructure, not a preview
+  of production. See §11/§42 above and `08-PAYMENTS.md` §73.
 
 ---
 

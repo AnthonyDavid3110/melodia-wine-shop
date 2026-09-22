@@ -1950,7 +1950,7 @@ Application implementation:
     Phase 7   Checkout and order administration COMPLETE
     Phase 8   Offline payment and seller workflows COMPLETE
     Phase 9   Preparation and fulfilment           COMPLETE
-    Phase 10  Online payments                      Gate 10C-B1 IN PROGRESS
+    Phase 10  Online payments                      COMPLETE
     Phase 11+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
@@ -2115,8 +2115,54 @@ both callback orderings). No migration. Explicitly not done in this
 gate (deferred to Gate 10C-B2): real Saferpay TEST `NotifyUrl` delivery
 against a publicly reachable deployment (Neon + Vercel staging), Vercel
 Deployment Protection bypass configuration, refunds, abandoned-order
-cleanup (TBD-PAY-006, unchanged). Phase 10 must not be marked COMPLETE
-until Gate 10C-B2's real-provider notification test is performed.
+cleanup (TBD-PAY-006, unchanged).
+
+Phase 10 Gate 10C-B2 (Saferpay staging acceptance testing) is
+**complete**. A temporary, isolated Neon PostgreSQL project and a
+temporary Vercel HTTPS deployment were created solely to give
+Saferpay's `NotifyUrl` a real, publicly reachable endpoint
+(`05-ARCHITECTURE.md` §11/§42) — disposable validation infrastructure,
+not production. Using the real Saferpay TEST environment throughout (no
+simulated/faked provider interaction anywhere in this gate), three
+acceptance scenarios were run against a real browser and independently
+re-verified against Saferpay's own `PaymentPage/Assert` record
+(`08-PAYMENTS.md` §73): (1) a real TWINT payment reconciled by
+`NotifyUrl` alone, with the browser's `ReturnUrl` request deliberately
+intercepted and blocked, proving genuine server-to-server recovery;
+(2) a real Visa payment, including a genuine 3-D Secure challenge,
+completed with both `ReturnUrl` and `NotifyUrl` left enabled and
+unsuppressed, proving exactly-once local finalization under a real (not
+simulated) race — exactly one Payment, one final PaymentEvent, one
+`PAYMENT_CONFIRMED_BY_PROVIDER` event, zero anomalies; (3) a real TWINT
+session genuinely cancelled via Saferpay's own hosted "Cancel" control,
+independently confirmed `TRANSACTION_ABORTED` with no `Transaction`
+object ever created, proving a cancellation can never produce a locally
+paid/confirmed Order. A Dynamic Currency Conversion (DCC) prompt was
+observed on the TEST Visa flow — a terminal/provider presentation
+choice unaffected by, and requiring no change to, application code;
+production onboarding should confirm ECM's DCC preference
+(`08-PAYMENTS.md` §73.4). No source code was modified during this gate —
+every finding was confirmatory of the Gate 10C-A/10C-B1 implementation.
+The temporary staging resources remain alive only until final
+review/cleanup (`05-ARCHITECTURE.md` §11/§42) and are not part of the
+eventual production deployment.
+
+Phase 10, as scoped by this document (integration architecture, the
+full Saferpay JSON API protocol, and verification against the real
+Saferpay TEST environment — §62/§64/§67 above), is now **COMPLETE**.
+The Phase 10 completion criteria (§67: no online order becomes paid
+without authoritative provider confirmation; every successful
+transaction is reconcilable to an ECM order) are met and have now been
+proven against a real deployment, not only against the automated
+Playwright suite's fake test provider. Deliberately remaining open, and
+explicitly **not** Phase 10 blockers because they belong to later
+phases already defined in this document: production Worldline/Saferpay
+merchant onboarding, production credentials, and the production
+terminal's DCC configuration (all TBD-PAY-001, Phase 15 — see
+§86/§87/§90 below); refunds (TBD-PAY-005, unchanged, not required for
+V1 per `08-PAYMENTS.md` §41); abandoned-order cleanup (TBD-PAY-006,
+unchanged); transactional email and a richer order-confirmation view
+(Phase 11, per this document's own phase ordering).
 
 The project was specified before implementation.
 

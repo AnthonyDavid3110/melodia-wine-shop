@@ -1265,7 +1265,10 @@ Before implementing production Worldline integration, confirm:
     [x] test environment available                    — real Saferpay TEST account in use
     [x] API credentials available                     — TEST JSON API Basic Authentication
     [ ] production credentials available               — pending
-    [x] callback/notification mechanism confirmed      — Assert-driven, no signed webhook (§70.1)
+    [x] callback/notification mechanism confirmed      — Assert-driven, no signed webhook (§70.1);
+                                                            NotifyUrl delivery verified end-to-end
+                                                            against a real staging deployment
+                                                            (Phase 10 Gate 10C-B2, §73.1)
     [x] capture/finalization semantics confirmed        — AUTHORIZED requires Transaction/Capture; only CAPTURED is final (§71, Phase 10 Gate 10C-A)
     [ ] refund mechanism confirmed                      — out of scope for Gate 10B/10C-A
     [ ] merchant back-office access confirmed           — pending
@@ -1351,6 +1354,15 @@ Do not implement unless scope changes:
   financially final — `Transaction/Capture` must be called and must
   itself confirm a captured state before an online Order becomes
   `CONFIRMED`/`PAID`. See §71.
+- DECIDED (Phase 10 Gate 10C-B2): Saferpay `NotifyUrl` delivers a genuine
+  server-to-server recovery path, verified end-to-end against a real,
+  publicly reachable staging deployment and the real Saferpay TEST
+  environment — see §73.1.
+- DECIDED (Phase 10 Gate 10C-B2): exactly-once local finalization holds
+  under a real, unsuppressed `ReturnUrl`/`NotifyUrl` race — see §73.2.
+- DECIDED (Phase 10 Gate 10C-B2): a genuinely cancelled/aborted Saferpay
+  TEST payment never produces a locally paid/confirmed Order — see
+  §73.3.
 
 ---
 
@@ -1734,13 +1746,85 @@ ambient cookie/session authentication for a CSRF token to guard, and
 the opaque token is itself a capability, not an authentication credential
 whose ambient presence CSRF exploits.
 
-## 72.8 Outstanding: Gate 10C-B2
+## 72.8 NotifyUrl delivery — RESOLVED (Phase 10 Gate 10C-B2)
 
-The real Saferpay TEST `NotifyUrl` callback has NOT been exercised
-against a publicly reachable deployment — `localhost` cannot receive it,
-and per this gate's explicit scope no tunnel was used. A minimal real
-`Initialize` regression check (§34 of the Gate 10C-B1 report) confirmed
-Saferpay syntactically accepts a `localhost` `SuccessNotifyUrl`/
-`FailNotifyUrl` at `Initialize` time. Verifying an actual delivered
-notification requires the staging deployment (Neon + Vercel) that Gate
-10C-B2 is scoped to build.
+The real Saferpay TEST `NotifyUrl` callback has now been exercised
+against a real, publicly reachable staging deployment (temporary Neon +
+Vercel, `05-ARCHITECTURE.md` §11/§42) and independently verified to
+reconcile a payment on its own, with the browser's `ReturnUrl` request
+deliberately blocked — see §73.1. This closes the gap this section
+originally described.
+
+---
+
+# 73. Saferpay real-provider acceptance testing — staging (Phase 10 Gate 10C-B2)
+
+Gate 10C-B1 implemented `NotifyUrl` but could not exercise it —
+`localhost` cannot receive an inbound provider callback. Gate 10C-B2
+built a temporary, isolated staging deployment (temporary Neon
+PostgreSQL project + temporary Vercel HTTPS deployment, both holding
+only fictional/disposable data — see `05-ARCHITECTURE.md` §11/§42) and,
+using the real Saferpay TEST environment throughout (no simulated or
+faked provider interaction anywhere in this gate), proved three
+scenarios end-to-end with a real browser.
+
+## 73.1 Notify-only recovery
+
+A real TWINT TEST payment was completed while the browser's `ReturnUrl`
+request was deliberately intercepted and blocked before it could reach
+the application. Server-to-server `SuccessNotifyUrl` delivery alone
+reconciled the Payment/Order to `SUCCEEDED`/`CONFIRMED`/`PAID`, proving
+`NotifyUrl` genuinely recovers a payment result the browser never
+delivers — not merely that the code compiles against it.
+
+## 73.2 Exactly-once under a real Return/Notify race
+
+A real Visa TEST card, including a genuine 3-D Secure challenge, was run
+with both `ReturnUrl` and `NotifyUrl` left enabled and unsuppressed —
+whichever one Saferpay and the browser delivered first was allowed to
+happen naturally, with no artificial ordering imposed. Result: exactly
+one `Payment` row, exactly one final `PaymentEvent`, exactly one
+`PAYMENT_CONFIRMED_BY_PROVIDER` `OrderEvent`, zero anomalies —
+confirming the Gate 10C-A/10C-B1 concurrency guarantees (Saferpay's own
+`TRANSACTION_ALREADY_CAPTURED` idempotency + the local
+`SELECT ... FOR UPDATE` lock) hold under a real, not simulated, race.
+Exact callback arrival order was not directly observable (no deployment
+log access in this session); the invariant actually proven — no
+duplicate financial effect regardless of arrival order — is the one
+that matters.
+
+## 73.3 Genuine cancellation produces no false success
+
+A real TWINT TEST session was aborted using Saferpay's own hosted
+"Cancel" control (never a simulated/faked outcome). `PaymentPage/Assert`
+independently confirmed `TRANSACTION_ABORTED` with no `Transaction`
+object ever created — the transaction was never authorized, let alone
+captured. Locally: `Payment.status = CANCELLED`, the Order stayed
+`NEW`/`PENDING`, zero `PaymentEvent` rows (correct per §70.4, which
+defines `PaymentEvent` as recording only a financially final result,
+never an aborted attempt), zero `PAYMENT_CONFIRMED_BY_PROVIDER` events,
+zero seller settlements, no `Transaction/Capture` call made.
+
+## 73.4 DCC observed on the TEST Visa flow
+
+The Saferpay TEST Visa card triggered a Dynamic Currency Conversion
+(DCC) prompt (offering to pay in a foreign display currency instead of
+CHF). The original CHF amount was selected/retained for the test, and
+the application's own server-side amount/currency validation applies
+unchanged either way — DCC is a terminal/provider-side presentation
+choice, not something Melodia implements or can opt out of in
+application code. Production onboarding (TBD-PAY-001) should explicitly
+confirm whether DCC is enabled or disabled on the real merchant
+terminal, per ECM's preference; no application workaround is planned or
+needed.
+
+## 73.5 What this staging exercise does not establish
+
+Staging used the Saferpay **TEST** environment exclusively, throughout —
+never production credentials, never the production merchant terminal.
+It does not substitute for the Phase 15 production Worldline/Saferpay
+onboarding (TBD-PAY-001) or the Phase 15 "Production payment test"
+(`10-IMPLEMENTATION-PLAN.md` §90). The temporary staging Neon/Vercel
+resources are disposable validation infrastructure, not a preview of
+permanent production architecture (`05-ARCHITECTURE.md` §11/§42), and
+remain alive only until final review/cleanup.
