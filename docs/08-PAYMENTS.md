@@ -1266,13 +1266,18 @@ Before implementing production Worldline integration, confirm:
     [x] API credentials available                     — TEST JSON API Basic Authentication
     [ ] production credentials available               — pending
     [x] callback/notification mechanism confirmed      — Assert-driven, no signed webhook (§70.1)
-    [ ] refund mechanism confirmed                      — out of scope for Gate 10B
+    [x] capture/finalization semantics confirmed        — AUTHORIZED requires Transaction/Capture; only CAPTURED is final (§71, Phase 10 Gate 10C-A)
+    [ ] refund mechanism confirmed                      — out of scope for Gate 10B/10C-A
     [ ] merchant back-office access confirmed           — pending
     [ ] contractual transaction pricing confirmed       — pending
 
 TWINT/Visa/Mastercard activation above is confirmed on the Saferpay TEST
 eCommerce terminal only — production activation on the real merchant
-terminal remains pending (TBD-PAY-001).
+terminal remains pending (TBD-PAY-001). Whether the production merchant
+terminal is configured for automatic capture (so `Assert` would return
+`CAPTURED` directly) or requires the explicit `Transaction/Capture` call
+this gate implements is not yet known — the implementation does not
+depend on it either way (§71.2 handles both).
 
 Do not guess provider configuration.
 
@@ -1342,6 +1347,10 @@ Do not implement unless scope changes:
 - DECIDED: Card data is never stored by Melodia Wine Shop.
 - DECIDED: Payment credentials are server-side secrets.
 - DECIDED: Financial anomalies are surfaced rather than silently corrected.
+- DECIDED (Phase 10 Gate 10C-A): `Assert` returning `AUTHORIZED` is not
+  financially final — `Transaction/Capture` must be called and must
+  itself confirm a captured state before an online Order becomes
+  `CONFIRMED`/`PAID`. See §71.
 
 ---
 
@@ -1440,7 +1449,9 @@ signed-event webhook. There is:
   this project doesn't use); a failed, declined, or payer-aborted
   transaction is instead an HTTP 400+ error response carrying an
   `ErrorName` (`TRANSACTION_ABORTED` for a payer cancellation,
-  `TRANSACTION_DECLINED` for a processor decline, etc.).
+  `TRANSACTION_DECLINED` for a processor decline, etc.). **`AUTHORIZED`
+  and `CAPTURED` are NOT financially equivalent — see §70.6/§71,
+  corrected in Phase 10 Gate 10C-A.**
 
 Gate 10B's implementation therefore calls `Assert` directly from the
 public return route when the browser lands on it (`/commande/retour`),
@@ -1481,21 +1492,28 @@ correlation.
             ↓
     confirmOnlinePayment() calls PaymentPage/Assert
             ↓
-    trusted success:                  trusted failure/cancellation:
-        Payment -> SUCCEEDED              Payment -> FAILED/CANCELLED
-        Order.customerPaymentStatus       Order remains NEW/PENDING
-            -> PAID                       retry creates a NEW Payment
-        Order.status NEW -> CONFIRMED     row on the SAME Order — never
-        Order.confirmedAt set             a second Order
-        sellerSettlementStatus stays
-            NOT_APPLICABLE
-        OrderEvent PAYMENT_CONFIRMED_BY_PROVIDER (actor PAYMENT_PROVIDER)
+    Assert: CAPTURED          Assert: AUTHORIZED         Assert: aborted/declined
+        (financially final)      (§70.6/§71 — Capture       Payment -> FAILED/CANCELLED
+            ↓                     required first)            Order remains NEW/PENDING
+    trusted success:                  ↓                      retry creates a NEW Payment
+        Payment -> SUCCEEDED   Transaction/Capture           row on the SAME Order — never
+        Order.customerPaymentStatus   ↓                      a second Order
+            -> PAID             captured / already_captured
+        Order.status NEW           -> trusted success (same
+            -> CONFIRMED            as the CAPTURED path)
+        Order.confirmedAt set
+        sellerSettlementStatus     still pending / uncertain
+            stays NOT_APPLICABLE      -> Order stays NEW/PENDING,
+        OrderEvent                    reconcilable, NOT a second
+        PAYMENT_CONFIRMED_BY_PROVIDER  payment attempt (§71)
 
 Multiple Payment attempts per Order are fully supported (no uniqueness
 constraint on `payments.orderId`) — e.g. a declined card attempt
 followed by a successful TWINT retry produces two rows: `FAILED` then
 `SUCCEEDED`. A terminal `FAILED`/`CANCELLED` row is never mutated back
-into an active state.
+into an active state. An attempt Saferpay has already authorized
+(`providerPaymentId` set) but whose capture is still unresolved is
+never superseded by a retry either — see §71.
 
 ## 70.4 PaymentEvent usage
 
@@ -1503,14 +1521,28 @@ into an active state.
 constraint (built in Phase 2, unused until now) is used with Saferpay's
 own `Transaction.Id` as `providerEventId` — a genuinely provider-issued,
 stable identifier for a specific completed transaction, recorded once
-per successful `Assert` result. A minimal, honest adaptation rather than
-a literal webhook-event log: Saferpay's protocol here is a query/result
-lookup, not a pushed event stream, so there is no separate "duplicate
-webhook delivery" to deduplicate — the constraint instead guarantees
-that repeated `Assert` calls returning the same transaction never write
-duplicate audit rows or duplicate `OrderEvent`s (the real idempotency
-boundary is the trusted-success transaction itself, guarded by
-`SELECT ... FOR UPDATE` on the Payment row).
+per successful **financially final** result (Gate 10C-A: `CAPTURED`
+directly from `Assert`, or after a successful `Transaction/Capture` —
+never for an `AUTHORIZED`-only observation). A minimal, honest
+adaptation rather than a literal webhook-event log: Saferpay's protocol
+here is a query/result lookup, not a pushed event stream, so there is no
+separate "duplicate webhook delivery" to deduplicate — the constraint
+instead guarantees that repeated `Assert`/`Capture` calls returning the
+same transaction never write duplicate audit rows or duplicate
+`OrderEvent`s (the real idempotency boundary is the trusted-success
+transaction itself, guarded by `SELECT ... FOR UPDATE` on the Payment
+row, backstopped by Saferpay's own `TRANSACTION_ALREADY_CAPTURED`
+Capture idempotency — see §71).
+
+`PaymentEvent` deliberately represents only this one final event, not
+every intermediate provider state observation (an `AUTHORIZED`
+observation is never itself written as a `PaymentEvent` row) — Gate
+10C-A considered and rejected recording both an `AUTHORIZED` and a
+`CAPTURED` event under the current `unique(provider, providerEventId)`
+constraint (the two would collide on the same `Transaction.Id`); the
+`AUTHORIZED` signal is instead recorded on `Payment.providerPaymentId`
+directly (see §71), which is sufficient for this gate's correctness and
+retry-safety needs without a schema change.
 
 ## 70.5 Authentication
 
@@ -1519,3 +1551,92 @@ Backoffice (Settings > JSON API basic authentication). Stored as two
 separate raw components (`SAFERPAY_API_USERNAME` /
 `SAFERPAY_API_PASSWORD`), never a precomputed `Authorization: Basic ...`
 header — the application constructs the header server-side.
+
+## 70.6 AUTHORIZED vs CAPTURED — see §71
+
+Gate 10B's original implementation treated `Transaction.Status =
+AUTHORIZED` and `CAPTURED` as equally "successful," which was
+financially incorrect and is corrected in Phase 10 Gate 10C-A — see §71
+for the full corrected protocol.
+
+---
+
+# 71. Saferpay Capture correctness (Phase 10 Gate 10C-A)
+
+## 71.1 The problem
+
+Gate 10B's real Saferpay TEST smoke test observed
+`Transaction.Status = AUTHORIZED` on completed test payments, and the
+original implementation mapped `AUTHORIZED` and `CAPTURED` to the same
+local `SUCCEEDED` outcome. Per the official Payment Page integration
+guide (docs.saferpay.com), verbatim: *"If the status is AUTHORIZED, a
+Capture needs to be performed. If the status is CAPTURED, you do not
+need to finalize."* Per the official Capture and Daily Closing guide,
+verbatim: *"Saferpay does not support automatic capturing… If a capture
+is needed, it always has to be executed by the merchant,"* and *"As long
+as a transaction has not passed through the capture, the amount is
+merely reserved… it will not be transferred to the merchant account."*
+`AUTHORIZED` alone is therefore **not** financially final — Gate 10B's
+mapping could mark an Order `PAID` while the customer's funds were only
+reserved, never actually transferred to ECM.
+
+## 71.2 Corrected protocol
+
+    Assert -> CAPTURED
+        financially final — proceed directly to local trusted success
+
+    Assert -> AUTHORIZED
+        NOT locally PAID yet — call Transaction/Capture
+        Capture -> captured / already_captured
+            -> now proceed to local trusted success
+        Capture -> pending / unrecognized (network, timeout, technical error)
+            -> stay PROCESSING; Order remains NEW/PENDING; reconcilable
+               on the next visit/poll — never marked FAILED
+
+`Transaction/Capture`
+(https://saferpay.github.io/jsonapi/#Payment_v1_Transaction_Capture) is
+called with `TransactionReference.TransactionId` set to Assert's own
+`Transaction.Id` (never a browser-supplied value), and no `Amount` field
+— omitting `Amount` requests a full capture; partial capture is not
+implemented. Called outside any DB transaction, exactly like `Assert`.
+
+## 71.3 Capture idempotency and concurrency
+
+Per official documentation, calling `Transaction/Capture` twice on an
+already-captured transaction does not error in the ordinary sense — it
+returns `ErrorName: TRANSACTION_ALREADY_CAPTURED`, described verbatim as
+*"not... failed... simply means the capture has already been
+executed."* This is Saferpay's own idempotency mechanism, and is treated
+as a success signal (`already_captured` normalizes identically to
+`captured`). Combined with the existing `SELECT ... FOR UPDATE` lock and
+already-terminal early return inside the local trusted-success
+transaction, two callers racing on the same `AUTHORIZED` transaction
+(e.g. a browser-return call and a future Notify call) cannot produce two
+effective captures or duplicate local success transitions — proven by a
+dedicated real-committed-connections concurrency test
+(`online-payment-concurrency.db.test.ts`).
+
+## 71.4 Retry safety while capture is uncertain
+
+`Payment.providerPaymentId` is now recorded as soon as `Assert` reports
+`AUTHORIZED` (before `Capture` is even attempted), not only on full
+success — this is the durable, no-migration signal that an attempt has
+genuinely reached Saferpay, independent of whether local capture
+confirmation later succeeds. `initiateOnlinePayment()` refuses to
+silently supersede (cancel) an active attempt that already has a
+`providerPaymentId` set — doing so would only cancel it locally, never
+at Saferpay, risking a double charge if the customer completed a fresh
+attempt on top of it. The return page's own polling already reconciles
+this state automatically; a retry is only ever offered once an attempt
+reaches a genuinely terminal `FAILED`/`CANCELLED` state.
+
+## 71.5 What was deliberately NOT changed
+
+No migration. No `capturedAt` column — `Payment.paidAt` continues to
+mean "financially final," set only after a genuinely captured result
+(direct `CAPTURED` or a successful `Capture` call), so it remains
+sufficient. No `CaptureId` persistence — needed only for a future refund
+feature (TBD-PAY-005, out of scope), not for this gate's correctness
+goal; flagged as a known, deliberately deferred gap. No `NotifyUrl`,
+`APP_BASE_URL`, Neon, or Vercel work — that is Gate 10C-B, which now
+builds on a financially-correct foundation.

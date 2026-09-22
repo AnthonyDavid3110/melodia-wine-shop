@@ -13,6 +13,7 @@ vi.mock("@/lib/env", () => ({ serverEnv: mockServerEnv }));
 
 const {
   assertPaymentPage,
+  capturePayment,
   initializePaymentPage,
   SaferpayConfigurationError,
   SaferpayNetworkError,
@@ -318,5 +319,115 @@ describe("assertPaymentPage", () => {
     const [, init] = vi.mocked(fetch).mock.calls[0]!;
     const body = JSON.parse(init!.body as string);
     expect(body.Token).toBe("my-token-123");
+  });
+});
+
+describe("capturePayment", () => {
+  it("sends the correct base URL, Basic auth, RequestHeader, and TransactionReference — no Amount (full capture)", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(200, {
+        ResponseHeader: {},
+        CaptureId: "cap-abc",
+        Status: "CAPTURED",
+        Date: "2026-01-01T00:00:00Z",
+      }),
+    );
+
+    const outcome = await capturePayment("txn-1");
+    expect(outcome).toEqual({ kind: "captured", captureId: "cap-abc" });
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(url).toBe("https://test.saferpay.com/api/Payment/v1/Transaction/Capture");
+    const headers = init!.headers as Record<string, string>;
+    expect(headers.Authorization).toBe(
+      `Basic ${Buffer.from("test-user:test-pass").toString("base64")}`,
+    );
+
+    const body = JSON.parse(init!.body as string);
+    expect(body.RequestHeader.CustomerId).toBe("286754");
+    expect(body.RequestHeader.RequestId).toBeTruthy();
+    expect(body.TransactionReference).toEqual({ TransactionId: "txn-1" });
+    expect(body.Amount).toBeUndefined();
+  });
+
+  it("normalizes a PENDING capture response to kind: pending", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(200, { ResponseHeader: {}, CaptureId: "cap-2", Status: "PENDING" }),
+    );
+
+    const outcome = await capturePayment("txn-2");
+    expect(outcome).toEqual({ kind: "pending", captureId: "cap-2" });
+  });
+
+  it("normalizes TRANSACTION_ALREADY_CAPTURED to kind: already_captured — a success signal, not an error", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(400, {
+        ErrorName: "TRANSACTION_ALREADY_CAPTURED",
+        ErrorMessage: "Transaction already captured",
+        Behavior: "DO_NOT_RETRY",
+      }),
+    );
+
+    const outcome = await capturePayment("txn-3");
+    expect(outcome).toEqual({ kind: "already_captured" });
+  });
+
+  it("normalizes a genuine provider rejection (e.g. AMOUNT_INVALID) to kind: unrecognized — never a customer-facing decline", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(400, {
+        ErrorName: "AMOUNT_INVALID",
+        ErrorMessage: "Amount is invalid",
+        Behavior: "DO_NOT_RETRY",
+      }),
+    );
+
+    const outcome = await capturePayment("txn-4");
+    expect(outcome.kind).toBe("unrecognized");
+  });
+
+  it("normalizes an unexpected Status value to kind: unrecognized", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(200, { ResponseHeader: {}, CaptureId: "cap-5", Status: "SOME_FUTURE_STATUS" }),
+    );
+
+    const outcome = await capturePayment("txn-5");
+    expect(outcome.kind).toBe("unrecognized");
+  });
+
+  it("maps a network failure to SaferpayNetworkError", async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error("ECONNRESET"));
+    await expect(capturePayment("txn-6")).rejects.toThrow(SaferpayNetworkError);
+  });
+
+  it("maps a malformed (non-JSON) response to SaferpayNetworkError", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("<html>not json</html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+    await expect(capturePayment("txn-7")).rejects.toThrow(SaferpayNetworkError);
+  });
+
+  it("throws SaferpayConfigurationError when configuration is incomplete, without calling fetch", async () => {
+    mockServerEnv.SAFERPAY_API_USERNAME = undefined;
+    await expect(capturePayment("txn-8")).rejects.toThrow(SaferpayConfigurationError);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("generates a distinct RequestId on every call", async () => {
+    vi.mocked(fetch).mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse(200, { ResponseHeader: {}, CaptureId: "cap-x", Status: "CAPTURED" }),
+      ),
+    );
+    await capturePayment("txn-9");
+    await capturePayment("txn-9");
+
+    const [, initA] = vi.mocked(fetch).mock.calls[0]!;
+    const [, initB] = vi.mocked(fetch).mock.calls[1]!;
+    const requestIdA = JSON.parse(initA!.body as string).RequestHeader.RequestId;
+    const requestIdB = JSON.parse(initB!.body as string).RequestHeader.RequestId;
+    expect(requestIdA).not.toBe(requestIdB);
   });
 });

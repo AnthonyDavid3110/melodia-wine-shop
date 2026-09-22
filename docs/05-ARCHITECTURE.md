@@ -745,10 +745,20 @@ boundary instead mirrors Saferpay's own two operations:
     src/infrastructure/payments/online-payments.ts
         initiateOnlinePayment()     — orchestration: validate, create
                                        local Payment attempt, call
-                                       Initialize, persist session id
+                                       Initialize, persist session id.
+                                       Refuses to silently supersede an
+                                       attempt Saferpay has already
+                                       authorized but whose capture is
+                                       still unresolved (Gate 10C-A —
+                                       see docs/08-PAYMENTS.md §71.4).
         confirmOnlinePayment()      — orchestration: call Assert,
-                                       normalize, apply the trusted
-                                       success/failure transition
+                                       normalize, and — if AUTHORIZED —
+                                       call Transaction/Capture before
+                                       applying the trusted success
+                                       transition (Gate 10C-A corrected
+                                       this: AUTHORIZED alone is not
+                                       financially final — see
+                                       docs/08-PAYMENTS.md §71)
 
 The domain layer (`src/domain/payments/`) never depends on raw Saferpay
 response types — `saferpay-client.ts` translates every response into a

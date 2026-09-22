@@ -1,7 +1,10 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import type { InitializePaymentPageInput, InitializePaymentPageResult } from "./saferpay-client";
-import type { SaferpayAssertOutcome } from "@/domain/payments/normalize-saferpay-outcome";
+import type {
+  SaferpayAssertOutcome,
+  SaferpayCaptureOutcome,
+} from "@/domain/payments/normalize-saferpay-outcome";
 
 /**
  * Test-only fake Saferpay provider (Phase 10 Gate 10B §25/§29) — same
@@ -68,15 +71,35 @@ export async function assertPaymentPage(token: string): Promise<SaferpayAssertOu
         message: "Simulated decline (fake test provider).",
       };
     case "success":
+      // Gate 10C-A: modeled as AUTHORIZED, matching what the real
+      // Saferpay TEST smoke test actually observed — so Playwright
+      // exercises the full Assert(AUTHORIZED) -> capturePayment() ->
+      // SUCCEEDED path, not just the CAPTURED-direct shortcut.
       return {
         kind: "success",
-        providerStatus: "CAPTURED",
+        providerStatus: "AUTHORIZED",
         transactionId: `fake-txn-${token}`,
         amountValue: attempt.amountValue,
         currencyCode: "CHF",
         paymentMethod: attempt.paymentMethod,
       };
   }
+}
+
+/**
+ * Fake `Transaction/Capture` (Gate 10C-A) — mirrors the real endpoint's
+ * shape closely enough to exercise `online-payments.ts`'s capture
+ * branch end-to-end in Playwright. `transactionId` follows the
+ * `fake-txn-${token}` convention set above, so the originating attempt
+ * can be found without a second map.
+ */
+export async function capturePayment(transactionId: string): Promise<SaferpayCaptureOutcome> {
+  const token = transactionId.replace(/^fake-txn-/, "");
+  const attempt = attempts.get(token);
+  if (!attempt) {
+    return { kind: "unrecognized", detail: "unknown fake transaction id" };
+  }
+  return { kind: "captured", captureId: `fake-capture-${token}` };
 }
 
 /** Looked up by /test/fake-saferpay to render the fake payment page and return the real ReturnUrl to redirect back to. */

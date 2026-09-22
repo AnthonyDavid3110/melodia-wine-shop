@@ -5,6 +5,7 @@ import { createOrder, type CreateOrderInput } from "@/infrastructure/orders/crea
 import {
   OnlinePaymentNotEligibleError,
   PaymentAttemptNotFoundError,
+  PaymentAttemptUnresolvedError,
   confirmOnlinePayment,
   initiateOnlinePayment,
 } from "@/infrastructure/payments/online-payments";
@@ -24,15 +25,28 @@ import { withRollback, type Tx } from "./setup";
 vi.mock("@/infrastructure/payments/saferpay-client", () => ({
   initializePaymentPage: vi.fn(),
   assertPaymentPage: vi.fn(),
+  capturePayment: vi.fn(),
 }));
 
-const { initializePaymentPage, assertPaymentPage } =
+const { initializePaymentPage, assertPaymentPage, capturePayment } =
   await import("@/infrastructure/payments/saferpay-client");
 
 beforeEach(() => {
   vi.mocked(initializePaymentPage).mockReset();
   vi.mocked(assertPaymentPage).mockReset();
+  vi.mocked(capturePayment).mockReset();
 });
+
+function mockAssertAuthorized(order: { totalAmount: number }, transactionId: string) {
+  vi.mocked(assertPaymentPage).mockResolvedValue({
+    kind: "success",
+    providerStatus: "AUTHORIZED",
+    transactionId,
+    amountValue: String(order.totalAmount),
+    currencyCode: "CHF",
+    paymentMethod: "TWINT",
+  });
+}
 
 function mockInitializeSuccess() {
   vi.mocked(initializePaymentPage).mockResolvedValue({
@@ -440,6 +454,195 @@ describe("confirmOnlinePayment — authoritative success", () => {
       const events = await tx.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
       expect(events.some((e) => e.type === "PAYMENT_ANOMALY_DETECTED")).toBe(true);
       expect(events.filter((e) => e.type === "PAYMENT_CONFIRMED_BY_PROVIDER")).toHaveLength(1);
+    });
+  });
+});
+
+describe("confirmOnlinePayment — Gate 10C-A capture correctness", () => {
+  it("Assert AUTHORIZED before Capture resolves: Payment not SUCCEEDED, Order not PAID, Order remains NEW", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
+      mockInitializeSuccess();
+      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+
+      mockAssertAuthorized(order, "txn-authorized-only");
+      // Capture never resolves cleanly — a network/timeout condition.
+      vi.mocked(capturePayment).mockRejectedValue(new Error("capture network timeout"));
+
+      const result = await confirmOnlinePayment(payment!.returnToken!, tx);
+      expect(result.status).toBe("PROCESSING");
+
+      const [updatedPayment] = await tx.select().from(payments).where(eq(payments.id, payment!.id));
+      expect(updatedPayment!.status).toBe("PENDING");
+      expect(updatedPayment!.paidAt).toBeNull();
+      // The genuine provider transaction id IS recorded even though
+      // capture is unresolved — this is the durable "already
+      // authorized" signal initiateOnlinePayment relies on.
+      expect(updatedPayment!.providerPaymentId).toBe("txn-authorized-only");
+
+      const [updatedOrder] = await tx.select().from(orders).where(eq(orders.id, order.id));
+      expect(updatedOrder!.status).toBe("NEW");
+      expect(updatedOrder!.customerPaymentStatus).toBe("PENDING");
+    });
+  });
+
+  it("Assert AUTHORIZED then a successful Capture applies the full atomic local success transition", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
+      mockInitializeSuccess();
+      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+
+      mockAssertAuthorized(order, "txn-captured-after-auth");
+      vi.mocked(capturePayment).mockResolvedValue({ kind: "captured", captureId: "cap-1" });
+
+      const result = await confirmOnlinePayment(payment!.returnToken!, tx);
+      expect(result.status).toBe("SUCCEEDED");
+
+      expect(vi.mocked(capturePayment)).toHaveBeenCalledWith("txn-captured-after-auth");
+
+      const [updatedPayment] = await tx.select().from(payments).where(eq(payments.id, payment!.id));
+      expect(updatedPayment!.status).toBe("SUCCEEDED");
+      expect(updatedPayment!.paidAt).not.toBeNull();
+      expect(updatedPayment!.providerPaymentId).toBe("txn-captured-after-auth");
+
+      const [updatedOrder] = await tx.select().from(orders).where(eq(orders.id, order.id));
+      expect(updatedOrder!.status).toBe("CONFIRMED");
+      expect(updatedOrder!.customerPaymentStatus).toBe("PAID");
+      expect(updatedOrder!.sellerSettlementStatus).toBe("NOT_APPLICABLE");
+
+      const events = await tx.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
+      expect(events.some((e) => e.type === "PAYMENT_CONFIRMED_BY_PROVIDER")).toBe(true);
+    });
+  });
+
+  it("TRANSACTION_ALREADY_CAPTURED from Capture is treated as success, not a failure", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
+      mockInitializeSuccess();
+      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+
+      mockAssertAuthorized(order, "txn-already-captured");
+      vi.mocked(capturePayment).mockResolvedValue({ kind: "already_captured" });
+
+      const result = await confirmOnlinePayment(payment!.returnToken!, tx);
+      expect(result.status).toBe("SUCCEEDED");
+
+      const [updatedOrder] = await tx.select().from(orders).where(eq(orders.id, order.id));
+      expect(updatedOrder!.status).toBe("CONFIRMED");
+      expect(updatedOrder!.customerPaymentStatus).toBe("PAID");
+    });
+  });
+
+  it("a still-PENDING Capture result leaves the Order NEW/PENDING without recording an anomaly", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
+      mockInitializeSuccess();
+      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+
+      mockAssertAuthorized(order, "txn-capture-pending");
+      vi.mocked(capturePayment).mockResolvedValue({ kind: "pending", captureId: "cap-pending" });
+
+      const result = await confirmOnlinePayment(payment!.returnToken!, tx);
+      expect(result.status).toBe("PROCESSING");
+      expect(result.anomaly).toBeFalsy();
+
+      const [updatedOrder] = await tx.select().from(orders).where(eq(orders.id, order.id));
+      expect(updatedOrder!.status).toBe("NEW");
+
+      const events = await tx.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
+      expect(events.some((e) => e.type === "PAYMENT_ANOMALY_DETECTED")).toBe(false);
+    });
+  });
+
+  it("an unrecognized Capture result (e.g. AMOUNT_INVALID) surfaces an anomaly but never fails the payment", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
+      mockInitializeSuccess();
+      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+
+      mockAssertAuthorized(order, "txn-capture-unrecognized");
+      vi.mocked(capturePayment).mockResolvedValue({
+        kind: "unrecognized",
+        detail: "AMOUNT_INVALID",
+      });
+
+      const result = await confirmOnlinePayment(payment!.returnToken!, tx);
+      expect(result.status).toBe("PROCESSING");
+      expect(result.anomaly).toBe(true);
+
+      const [updatedPayment] = await tx.select().from(payments).where(eq(payments.id, payment!.id));
+      expect(updatedPayment!.status).toBe("PENDING");
+
+      const [updatedOrder] = await tx.select().from(orders).where(eq(orders.id, order.id));
+      expect(updatedOrder!.status).toBe("NEW");
+
+      const events = await tx.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
+      expect(events.some((e) => e.type === "PAYMENT_ANOMALY_DETECTED")).toBe(true);
+    });
+  });
+
+  it("retry is refused while a Saferpay-authorized attempt's capture is still unresolved — never double-charges", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
+      mockInitializeSuccess();
+      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+
+      mockAssertAuthorized(order, "txn-unresolved-capture");
+      vi.mocked(capturePayment).mockRejectedValue(new Error("timeout"));
+      await confirmOnlinePayment(payment!.returnToken!, tx);
+
+      // The Payment is still locally PENDING (active) AND now carries a
+      // real providerPaymentId — a retry must not silently cancel it
+      // and start a second, independent Saferpay session.
+      await expect(
+        initiateOnlinePayment(order.id, "CARD", "https://vins.ecmelodia.ch/retour", tx),
+      ).rejects.toThrow(PaymentAttemptUnresolvedError);
+
+      const rows = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.status).toBe("PENDING");
+    });
+  });
+
+  it("a genuinely CAPTURED Assert result never calls Transaction/Capture at all", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const order = await createOnlineOrder(tx, campaign.id, product.id, "TWINT");
+      mockInitializeSuccess();
+      await initiateOnlinePayment(order.id, "TWINT", "https://vins.ecmelodia.ch/retour", tx);
+      const [payment] = await tx.select().from(payments).where(eq(payments.orderId, order.id));
+
+      vi.mocked(assertPaymentPage).mockResolvedValue({
+        kind: "success",
+        providerStatus: "CAPTURED",
+        transactionId: "txn-direct-capture",
+        amountValue: String(order.totalAmount),
+        currencyCode: "CHF",
+        paymentMethod: "TWINT",
+      });
+
+      const result = await confirmOnlinePayment(payment!.returnToken!, tx);
+      expect(result.status).toBe("SUCCEEDED");
+      expect(vi.mocked(capturePayment)).not.toHaveBeenCalled();
     });
   });
 });

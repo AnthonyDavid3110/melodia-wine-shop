@@ -9,8 +9,10 @@ import {
   isActivePaymentAttempt,
 } from "@/domain/payments/payment-guards";
 import {
+  normalizeSaferpayCaptureOutcome,
   normalizeSaferpayOutcome,
   type SaferpayAssertOutcome,
+  type SaferpayCaptureOutcome,
   type SaferpaySuccessDetails,
 } from "@/domain/payments/normalize-saferpay-outcome";
 import { type Money } from "@/domain/money";
@@ -27,7 +29,10 @@ type DbHandle = Pick<typeof db, "select" | "insert" | "update" | "transaction">;
  * never in `.env.example` or any real deployment configuration. Even a
  * mistaken production env var alone can never activate it.
  */
-function getProvider(): Pick<typeof saferpayClient, "initializePaymentPage" | "assertPaymentPage"> {
+function getProvider(): Pick<
+  typeof saferpayClient,
+  "initializePaymentPage" | "assertPaymentPage" | "capturePayment"
+> {
   if (process.env.NODE_ENV !== "production" && process.env.E2E_FAKE_PAYMENT_PROVIDER === "true") {
     return fakeTestProvider;
   }
@@ -58,6 +63,26 @@ export class PaymentAttemptNotFoundError extends Error {
   constructor() {
     super("Tentative de paiement introuvable.");
     this.name = "PaymentAttemptNotFoundError";
+  }
+}
+
+/**
+ * Gate 10C-A — thrown instead of silently superseding an active attempt
+ * that Saferpay has already authorized (`providerPaymentId` set) but
+ * whose local capture confirmation is still uncertain. Superseding it
+ * would cancel it only locally — Saferpay itself is never told — so a
+ * customer completing a fresh attempt on top of it could be charged
+ * twice. The existing return page already reconciles this state
+ * automatically (its own poll re-attempts Assert/Capture); this error
+ * only ever surfaces if a retry is attempted while that reconciliation
+ * is still unresolved.
+ */
+export class PaymentAttemptUnresolvedError extends Error {
+  constructor() {
+    super(
+      "Votre précédent paiement est en cours de vérification. Veuillez patienter un instant avant de réessayer.",
+    );
+    this.name = "PaymentAttemptUnresolvedError";
   }
 }
 
@@ -118,9 +143,19 @@ export async function initiateOnlinePayment(
 
     const existingPayments = await tx.select().from(payments).where(eq(payments.orderId, orderId));
     for (const existing of existingPayments) {
-      if (isActivePaymentAttempt(existing)) {
-        await tx.update(payments).set({ status: "CANCELLED" }).where(eq(payments.id, existing.id));
+      if (!isActivePaymentAttempt(existing)) {
+        continue;
       }
+      if (existing.providerPaymentId) {
+        // Gate 10C-A: Saferpay has already authorized THIS attempt
+        // (recorded as soon as Assert reports AUTHORIZED — see
+        // confirmOnlinePayment) — cancelling it locally would not
+        // cancel it at Saferpay, so starting a fresh attempt here could
+        // double-charge the customer. Refuse; the return page's own
+        // polling already reconciles this automatically.
+        throw new PaymentAttemptUnresolvedError();
+      }
+      await tx.update(payments).set({ status: "CANCELLED" }).where(eq(payments.id, existing.id));
     }
 
     const token = generateReturnToken();
@@ -188,13 +223,31 @@ export interface ConfirmOnlinePaymentResult {
 
 /**
  * The trusted result-lookup used by the public return route (Gate 10B
- * §12/§15/§16) — safe to call repeatedly (browser refresh, a stray
- * duplicate notification ping, etc.). Never marks anything paid merely
- * because this function was invoked; it always asks Saferpay
- * (PaymentPage/Assert) for the authoritative result before applying any
- * state change, except when the local Payment is already terminal, in
- * which case it returns that terminal state directly without a
- * redundant provider call.
+ * §12/§15/§16, corrected in Gate 10C-A) — safe to call repeatedly
+ * (browser refresh, a stray duplicate notification ping, etc.). Never
+ * marks anything paid merely because this function was invoked; it
+ * always asks Saferpay (PaymentPage/Assert) for the authoritative
+ * result before applying any state change, except when the local
+ * Payment is already terminal, in which case it returns that terminal
+ * state directly without a redundant provider call.
+ *
+ * Gate 10C-A: `Assert` returning `AUTHORIZED` is NOT financially final
+ * (docs.saferpay.com — see `normalize-saferpay-outcome.ts`). When
+ * `Assert` reports `REQUIRES_CAPTURE`, this function calls
+ * `Transaction/Capture` — outside any DB transaction, exactly like
+ * `Assert` itself — and only a genuinely captured result (`CAPTURED`
+ * directly from Assert, or a successful/already-captured `Capture`
+ * call) reaches `applySuccessfulOnlinePayment()`. Concurrency safety
+ * for two callers racing on the SAME `AUTHORIZED` transaction rests on
+ * two independent layers: Saferpay's own server-side Capture
+ * idempotency (a second concurrent `Capture` call returns
+ * `TRANSACTION_ALREADY_CAPTURED`, normalized to the same `SUCCEEDED`
+ * outcome as the winner), plus the existing `SELECT … FOR UPDATE`
+ * lock + already-terminal early return inside
+ * `applySuccessfulOnlinePayment()` itself — neither layer alone would
+ * be sufficient, but together they guarantee the local trusted-success
+ * transition still applies exactly once, without ever holding a DB
+ * lock across a provider HTTP call.
  */
 export async function confirmOnlinePayment(
   returnToken: string,
@@ -236,13 +289,71 @@ export async function confirmOnlinePayment(
 
   const normalized = normalizeSaferpayOutcome(outcome);
 
-  if (normalized.status === "SUCCEEDED" && outcome.kind === "success") {
+  if (
+    (normalized.status === "SUCCEEDED" || normalized.status === "REQUIRES_CAPTURE") &&
+    outcome.kind === "success"
+  ) {
     if (outcome.currencyCode !== "CHF" || Number(outcome.amountValue) !== payment.amount) {
       await recordAnomaly(dbHandle, payment.id, order.id, "amount-or-currency-mismatch");
       return { status: "PROCESSING", orderNumber: order.orderNumber, anomaly: true };
     }
-    const applied = await applySuccessfulOnlinePayment(dbHandle, payment.id, outcome);
-    return { status: applied, orderNumber: order.orderNumber };
+
+    if (normalized.status === "SUCCEEDED") {
+      // Assert itself already reports CAPTURED — financially final.
+      const applied = await applySuccessfulOnlinePayment(dbHandle, payment.id, outcome);
+      return { status: applied, orderNumber: order.orderNumber };
+    }
+
+    // REQUIRES_CAPTURE (Assert reported AUTHORIZED): the authorization
+    // succeeded but funds are merely reserved — Capture is required
+    // before this can be treated as paid (Gate 10C-A). Outside any DB
+    // transaction, exactly like Assert above.
+    //
+    // Record the genuine provider transaction id NOW, before attempting
+    // Capture — this is the durable signal `initiateOnlinePayment` uses
+    // to refuse silently superseding this attempt (see
+    // PaymentAttemptUnresolvedError above) if capture confirmation is
+    // still uncertain. Deliberately not part of the final atomic
+    // success transaction below: it must be visible even if Capture
+    // itself never resolves.
+    if (!payment.providerPaymentId) {
+      await dbHandle
+        .update(payments)
+        .set({ providerPaymentId: outcome.transactionId })
+        .where(eq(payments.id, payment.id));
+    }
+
+    let captureOutcome: SaferpayCaptureOutcome;
+    try {
+      captureOutcome = await getProvider().capturePayment(outcome.transactionId);
+    } catch {
+      // Provider unreachable right now — never fabricate a result; the
+      // authorization stands, but capture is unresolved. Stay
+      // PROCESSING, safe to retry (a retried Capture call is safe even
+      // if the first one actually reached Saferpay — see
+      // TRANSACTION_ALREADY_CAPTURED handling in normalizeCapture).
+      return { status: "PROCESSING", orderNumber: order.orderNumber };
+    }
+
+    const normalizedCapture = normalizeSaferpayCaptureOutcome(captureOutcome);
+    if (normalizedCapture.status === "SUCCEEDED") {
+      const applied = await applySuccessfulOnlinePayment(dbHandle, payment.id, outcome);
+      return { status: applied, orderNumber: order.orderNumber };
+    }
+
+    // Capture still PENDING, or an unrecognized/technical Capture
+    // condition (e.g. AMOUNT_INVALID, TRANSACTION_NOT_FOUND) — never a
+    // customer-facing decline of an already-authorized payment (Gate
+    // 10C-A §15). Surface unrecognized conditions as an anomaly for
+    // admin review; a still-pending capture is expected, not anomalous.
+    if ("anomaly" in normalizedCapture && normalizedCapture.anomaly) {
+      await recordAnomaly(dbHandle, payment.id, order.id, "capture-unrecognized-result");
+    }
+    return {
+      status: "PROCESSING",
+      orderNumber: order.orderNumber,
+      anomaly: "anomaly" in normalizedCapture ? normalizedCapture.anomaly : false,
+    };
   }
 
   if (normalized.status === "FAILED") {

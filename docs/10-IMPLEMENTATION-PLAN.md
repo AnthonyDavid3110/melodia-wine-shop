@@ -1950,7 +1950,7 @@ Application implementation:
     Phase 7   Checkout and order administration COMPLETE
     Phase 8   Offline payment and seller workflows COMPLETE
     Phase 9   Preparation and fulfilment           COMPLETE
-    Phase 10  Online payments                      Gate 10B IN PROGRESS
+    Phase 10  Online payments                      Gate 10C-A IN PROGRESS
     Phase 11+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
@@ -2051,6 +2051,41 @@ rich order-confirmation view on the return page (the current one is
 intentionally minimal per the gate's "no giant checkout redesign"
 instruction). Phase 10 must not be marked COMPLETE until these are
 addressed in a future gate.
+
+Phase 10 Gate 10C read-only inspection (following Gate 10B) found a
+**financial correctness blocker** in the already-shipped Gate 10B
+mapping: the real Saferpay TEST smoke test observed
+`Transaction.Status = AUTHORIZED`, which Gate 10B's code treated as
+equally successful to `CAPTURED` — per official Saferpay documentation,
+`AUTHORIZED` means funds are merely reserved, not yet transferred;
+`Transaction/Capture` must be called and must itself confirm a captured
+state first. Gate 10C-A (online-payments-capture-correctness) fixes
+exactly this, before any notification/recovery work (Gate 10C-B)
+proceeds. Implemented: `saferpay-client.ts`'s `capturePayment()`
+(`Transaction/Capture`, full capture only, no partial capture);
+`normalize-saferpay-outcome.ts`'s `REQUIRES_CAPTURE` outcome (distinct
+from `SUCCEEDED`) and `normalizeSaferpayCaptureOutcome()`;
+`confirmOnlinePayment()` now calls `Transaction/Capture` (outside any DB
+transaction) whenever `Assert` reports `AUTHORIZED`, and only a
+genuinely captured result reaches the existing local trusted-success
+transaction (unchanged, reused as-is); `initiateOnlinePayment()` now
+refuses to silently supersede an attempt Saferpay has already
+authorized but whose capture is still unresolved (using the existing
+`providerPaymentId` field, recorded as soon as `AUTHORIZED` is
+observed — no schema change). Saferpay's own documented
+`TRANSACTION_ALREADY_CAPTURED` error is treated as a success signal, not
+a failure — this is Saferpay's own Capture idempotency mechanism, and
+combined with the existing `SELECT ... FOR UPDATE` lock it makes two
+concurrent confirmations of the same `AUTHORIZED` transaction safe
+(proven by a dedicated real-committed-connections concurrency test).
+Verified against the real Saferpay TEST account for both TWINT and
+CARD, and covered by automated tests (unit, DB including the
+concurrency proof, provider-contract, and Playwright — the fake test
+provider now models `AUTHORIZED` requiring capture, not a `CAPTURED`
+shortcut). No migration. Explicitly not done in this gate (deferred to
+Gate 10C-B): `NotifyUrl`/`FailNotifyUrl`, `APP_BASE_URL`, Neon, Vercel,
+admin reconciliation, refunds, `CaptureId` persistence (needed only for
+a future refund feature).
 
 The project was specified before implementation.
 

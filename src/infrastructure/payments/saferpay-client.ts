@@ -2,7 +2,10 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { serverEnv } from "@/lib/env";
 import type { Money } from "@/domain/money";
-import type { SaferpayAssertOutcome } from "@/domain/payments/normalize-saferpay-outcome";
+import type {
+  SaferpayAssertOutcome,
+  SaferpayCaptureOutcome,
+} from "@/domain/payments/normalize-saferpay-outcome";
 
 /**
  * Server-only Saferpay JSON API client (Phase 10 Gate 10B). Direct,
@@ -291,4 +294,59 @@ export async function assertPaymentPage(token: string): Promise<SaferpayAssertOu
     };
   }
   return { kind: "unrecognized", detail: `Assert error without ErrorName (HTTP ${result.status})` };
+}
+
+interface CaptureResponseBody {
+  CaptureId: string;
+  Status: "PENDING" | "CAPTURED";
+  Date?: string;
+}
+
+/**
+ * Transaction/Capture — https://saferpay.github.io/jsonapi/#Payment_v1_Transaction_Capture
+ * (Gate 10C-A). Required whenever `Assert` returns `Transaction.Status
+ * = AUTHORIZED` (docs.saferpay.com, Payment Page integration guide:
+ * "If the status is AUTHORIZED, a Capture needs to be performed").
+ * `TransactionReference.TransactionId` is Assert's own `Transaction.Id`
+ * — the only trusted, provider-derived reference (never taken from the
+ * browser). `Amount` is deliberately omitted: per the official schema
+ * this requests a FULL capture (no partial-capture support here, by
+ * design — Gate 10C-A explicitly excludes partial capture).
+ *
+ * Like `assertPaymentPage`, this never throws for a normal
+ * Saferpay-reported business outcome — including
+ * `TRANSACTION_ALREADY_CAPTURED`, which the docs describe verbatim as
+ * "not... failed... simply means the capture has already been
+ * executed" (Saferpay's own Capture idempotency signal, load-bearing
+ * for concurrent-confirmation safety — see `online-payments.ts`). Only
+ * genuine transport/config failures throw
+ * (`SaferpayNetworkError`/`SaferpayConfigurationError`).
+ */
+export async function capturePayment(transactionId: string): Promise<SaferpayCaptureOutcome> {
+  const config = getSaferpayConfig();
+  const body = {
+    RequestHeader: buildRequestHeader(config),
+    TransactionReference: { TransactionId: transactionId },
+  };
+
+  const result = await callSaferpay("/Payment/v1/Transaction/Capture", body, config);
+
+  if (result.ok) {
+    const data = result.data as CaptureResponseBody;
+    if (data.Status === "CAPTURED") {
+      return { kind: "captured", captureId: data.CaptureId };
+    }
+    if (data.Status === "PENDING") {
+      return { kind: "pending", captureId: data.CaptureId };
+    }
+    return { kind: "unrecognized", detail: `Unexpected Capture Status: ${String(data.Status)}` };
+  }
+
+  if (result.error.ErrorName === "TRANSACTION_ALREADY_CAPTURED") {
+    return { kind: "already_captured" };
+  }
+  return {
+    kind: "unrecognized",
+    detail: `Capture error ${result.error.ErrorName ?? "unknown"} (HTTP ${result.status})`,
+  };
 }
