@@ -1951,7 +1951,8 @@ Application implementation:
     Phase 8   Offline payment and seller workflows COMPLETE
     Phase 9   Preparation and fulfilment           COMPLETE
     Phase 10  Online payments                      COMPLETE
-    Phase 11+ Not started
+    Phase 11  Transactional email                   Gate 11A IN PROGRESS
+    Phase 12+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master
@@ -2163,6 +2164,62 @@ terminal's DCC configuration (all TBD-PAY-001, Phase 15 — see
 V1 per `08-PAYMENTS.md` §41); abandoned-order cleanup (TBD-PAY-006,
 unchanged); transactional email and a richer order-confirmation view
 (Phase 11, per this document's own phase ordering).
+
+Phase 11 Gate 11A (transactional email foundation) is **in progress,
+not complete**. Implemented: TBD-ARCH-005 resolved to Resend
+(`05-ARCHITECTURE.md` §29/§61); a minimal `EmailProvider` boundary
+(`src/infrastructure/email/email-provider.ts`) so domain/application
+code never imports the `resend` package directly; a real Resend
+adapter (`resend-provider.ts`, the official `resend` npm package,
+server-only, three normalized error types —
+`EmailConfigurationError`/`EmailProviderRejectedError`/
+`EmailNetworkError` — derived from the installed SDK's own
+`RESEND_ERROR_CODE_KEY` union, consulted directly from
+`node_modules/resend/dist/index.d.mts` and cross-checked against
+current official Resend documentation, not assumed from memory); a
+double-gated fake test provider (`fake-test-provider.ts`, mirroring
+`src/infrastructure/payments/fake-test-provider.ts`'s exact safety
+model — `NODE_ENV !== "production"` AND explicit
+`E2E_FAKE_EMAIL_PROVIDER=true`); `RESEND_API_KEY`/`EMAIL_FROM` added to
+`src/lib/env.ts`'s `serverSchema` (optional, asserted only at the point
+a real send is attempted); a pure order-confirmation content builder
+(`src/domain/email/order-confirmation-content.ts`) producing both HTML
+and plain-text output from one shared computed-fields object so the
+two can never diverge on a business fact, covering both required
+variants (ONLINE_PAID for TWINT/CARD, SELLER_PAYMENT for SELLER,
+derived from a single `paymentMethod` field rather than a separately
+supplied variant flag); a dedicated `escapeHtml()`
+(`src/domain/email/escape-html.ts`) applied to every interpolated
+value in the HTML output, with dedicated tests proving HTML special
+characters cannot inject markup; a composed entry point
+(`order-confirmation.ts`'s `sendOrderConfirmationEmail()`). No database
+migration — `EMAIL_SENT`/`EMAIL_FAILED` OrderEvent recording is
+deferred to Gate 11B, matching the existing `orderEvents.type` plain-
+text column (no schema change needed either way).
+
+**Deliberately not done in this gate** (all explicitly out of scope
+per the gate's own brief): no automatic dispatch wired into
+`createOrder()`, `submitCheckoutAction()`,
+`applySuccessfulOnlinePayment()`, `confirmOnlinePayment()`, the
+Saferpay Return/Notify routes, or admin reconciliation — the
+`sendOrderConfirmationEmail()` entry point exists but is not called
+from any of them yet; no admin resend button (deferred to optional
+Gate 11C); no password-reset email (deferred, unchanged); no
+`EMAIL_SENT`/`EMAIL_FAILED` OrderEvent recording yet; no real Resend
+API call was made at any point during this gate; no DNS configuration.
+Resend idempotency support (`Idempotency-Key` header, 24-hour window,
+confirmed present in the installed SDK) is documented but not used —
+Gate 11B's structural placement of the dispatch call (inside the
+already-proven idempotent transition points, never on every retry/
+replay) remains the authoritative correctness mechanism; a stable
+`Idempotency-Key` (e.g. `order-confirmation/<orderId>`) may be added
+later as defense-in-depth once dispatch actually exists to key it to.
+Covered by unit tests only (content builder, HTML escaping, both
+provider adapters, provider-selection guard) — no DB integration test
+was added, since Gate 11A performs no DB mutation of its own; Gate 11B
+carries the real-DB idempotency/concurrency tests once dispatch is
+wired in. Phase 11 must not be marked COMPLETE until Gate 11B (at
+minimum) is done.
 
 The project was specified before implementation.
 

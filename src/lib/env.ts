@@ -119,6 +119,27 @@ export const serverSchema = z.object({
       message: "APP_BASE_URL must be an http:// or https:// URL",
     })
     .optional(),
+
+  /**
+   * Resend API key (Phase 11 Gate 11A, docs/05-ARCHITECTURE.md
+   * TBD-ARCH-005 — resolved: Resend). Optional here for the same
+   * "don't break unrelated module loads" reason as `DATABASE_URL` — the
+   * real adapter (`src/infrastructure/email/resend-provider.ts`)
+   * asserts this is present at the point a send is actually attempted,
+   * never at module load time. The double-gated fake test provider
+   * (`fake-test-provider.ts`) never reads this variable at all.
+   */
+  RESEND_API_KEY: z.string().optional(),
+
+  /**
+   * Sender address for transactional order-confirmation email, e.g.
+   * `"Les Vins de Mélodia <commandes@vins.ecmelodia.ch>"`. Must belong
+   * to a domain verified in Resend before real (non-test) sending works
+   * — see docs/08-PAYMENTS.md-style deployment-dependency framing;
+   * this is a Phase 15 production/DNS concern, not a Gate 11A one.
+   * Optional/asserted-at-use, same pattern as `RESEND_API_KEY` above.
+   */
+  EMAIL_FROM: z.string().optional(),
 });
 
 /**
@@ -158,6 +179,8 @@ export const serverEnv = parseEnv(serverSchema, {
   SAFERPAY_API_USERNAME: process.env.SAFERPAY_API_USERNAME,
   SAFERPAY_API_PASSWORD: process.env.SAFERPAY_API_PASSWORD,
   APP_BASE_URL: process.env.APP_BASE_URL,
+  RESEND_API_KEY: process.env.RESEND_API_KEY,
+  EMAIL_FROM: process.env.EMAIL_FROM,
 });
 
 export const publicEnv = parseEnv(publicSchema, {});

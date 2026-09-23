@@ -1135,6 +1135,30 @@ by the customer.
 
 Avoid exposing unnecessary internal IDs.
 
+## Phase 11 Gate 11A implementation (adopted)
+
+`src/domain/email/order-confirmation-content.ts`'s pure content builder
+is the single place email content is assembled, and is unit-tested
+directly against this requirement: no internal database ID, no
+provider transaction ID, no Saferpay/TWINT identifier, no payment
+token/credential ever appears in either the HTML or plain-text output
+(see `order-confirmation-content.test.ts`'s dedicated tests). The
+`EmailProviderRejectedError`/`EmailNetworkError`/`EmailConfigurationError`
+classes thrown by `resend-provider.ts` never surface the raw provider
+response, the API key, or `Authorization` header — only a sanitized
+message and, for a genuine provider rejection, the provider's own
+short error *name* (e.g. `validation_error`), never its full body.
+
+Customer-controlled and catalogue-snapshot text alike (customer name,
+address, delivery note, product name snapshots) is escaped through a
+small dedicated `escapeHtml()` (`src/domain/email/escape-html.ts`)
+before being interpolated into the HTML output — no template/rendering
+framework, no `dangerouslySetInnerHTML`-equivalent, applying the
+existing "customer-provided text is never trusted HTML" principle
+(§13 above) to email HTML specifically. Covered by dedicated tests
+proving HTML special characters in customer input cannot inject
+markup.
+
 ---
 
 # 61. Email sender
@@ -1147,6 +1171,18 @@ production email setup.
 This improves deliverability and reduces spoofing risk.
 
 Exact DNS configuration depends on selected email provider.
+
+## Phase 11 Gate 11A implementation (adopted)
+
+Provider selected: Resend (`05-ARCHITECTURE.md` TBD-ARCH-005, resolved).
+`RESEND_API_KEY`/`EMAIL_FROM` are server-only environment variables
+(`src/lib/env.ts`), never `NEXT_PUBLIC_*`, asserted only at the point a
+real send is attempted (`resend-provider.ts`'s `getResendConfig()`) —
+never at module load, matching every other secret in this project.
+Actual SPF/DKIM/DMARC DNS configuration for the real sending domain is
+NOT done in Gate 11A — it remains a Phase 15 production/deployment
+step, and no automatic email dispatch exists yet for it to matter to
+(see `10-IMPLEMENTATION-PLAN.md` Phase 11 Gate 11A/11B).
 
 ---
 
@@ -1603,6 +1639,12 @@ Use managed platform security where appropriate.
   environment, to derive payment truth only from `PaymentPage/Assert` —
   never from the callback/redirect request itself (Phase 10 Gate
   10C-B2). See `08-PAYMENTS.md` §73.
+- DECIDED (Phase 11 Gate 11A): transactional email content is built by
+  one pure, unit-tested function (`buildOrderConfirmationEmail()`)
+  proven never to include internal IDs, provider transaction IDs, or
+  payment credentials, with every dynamic value HTML-escaped before
+  interpolation — no template/rendering-framework dependency. See §60
+  above.
 
 ---
 

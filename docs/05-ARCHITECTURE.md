@@ -955,26 +955,17 @@ The application requires transactional email for:
 - order confirmation;
 - possibly administrative notifications later.
 
-Provider is TBD.
-
-Selection criteria:
-
-- deliverability;
-- API quality;
-- pricing;
-- custom domain support;
-- logs;
-- EU/Swiss considerations.
-
-Possible providers may include:
-
-- Resend;
-- Postmark;
-- another transactional email provider.
+**DECIDED (Phase 11 Gate 11A, TBD-ARCH-005 resolved):** Resend. Selected
+without a further Postmark/alternative-provider evaluation (an explicit
+product decision for this gate — see §60/§61 below).
 
 Email must be sent from an ECM-controlled domain or subdomain.
 
-Exact sender address is TBD.
+Exact sender address (`EMAIL_FROM`) is set via environment
+configuration, not hardcoded — see §31 below. Production sending
+additionally requires the sender's domain to be verified in Resend with
+SPF/DKIM/DMARC configured (docs/09-SECURITY.md §61) — a Phase 15
+deployment dependency, not resolved by Gate 11A.
 
 ---
 
@@ -1000,16 +991,52 @@ The failure should be observable by administrators or logs.
 
 # 31. Email abstraction
 
-Use an application-level interface.
+## Phase 11 Gate 11A implementation (adopted)
 
-Conceptually:
+The originally-sketched generic `EmailProvider` with
+`sendOrderConfirmation()`/`sendAdminNotification()` was narrowed to
+exactly what Phase 11 needs (docs/10-IMPLEMENTATION-PLAN.md §5's "not a
+general campaign-email platform"): a single-operation boundary,
+mirroring the `PaymentProvider`-style isolation already established for
+Saferpay (§22 above).
 
-    EmailProvider
+    src/infrastructure/email/email-provider.ts
+        EmailProvider — sendEmail(input): Promise<SendEmailSuccess>
 
-        sendOrderConfirmation()
-        sendAdminNotification()
+    src/infrastructure/email/resend-provider.ts
+        sendEmail()              — real adapter, official `resend`
+                                    npm package, server-only
+        isResendConfigured()
 
-Provider-specific code should remain isolated.
+    src/infrastructure/email/fake-test-provider.ts
+        sendEmail()              — deterministic, no network, same
+                                    double-gated safety model as
+                                    src/infrastructure/payments/
+                                    fake-test-provider.ts
+                                    (NODE_ENV !== "production" AND
+                                    explicit E2E_FAKE_EMAIL_PROVIDER
+                                    opt-in)
+
+    src/infrastructure/email/order-confirmation.ts
+        sendOrderConfirmationEmail() — composed entry point (content
+                                        builder + provider selection).
+                                        NOT called by any order/payment
+                                        code path yet — see Gate 11A/
+                                        11B below.
+
+    src/domain/email/order-confirmation-content.ts
+        buildOrderConfirmationEmail() — pure: persisted order data in,
+                                         {subject, html, text} out. No
+                                         network, no DB access.
+
+`sendAdminNotification()` was not built — no Phase 11 requirement
+depends on it; adding it now would be speculative (docs/10-
+IMPLEMENTATION-PLAN.md §16 scope-creep guidance).
+
+Gate 11A builds this foundation only — it is deliberately NOT wired
+into `createOrder()`, checkout, or the online-payment trusted-success
+transition yet. Gate 11B wires dispatch at the proven idempotent
+transition points (see docs/10-IMPLEMENTATION-PLAN.md Phase 11).
 
 ---
 
@@ -1722,6 +1749,15 @@ Do not create ADRs for trivial implementation details.
   publicly reachable HTTPS endpoint for Phase 10 Gate 10C-B2 acceptance
   testing — disposable staging validation infrastructure, not a preview
   of production. See §11/§42 above and `08-PAYMENTS.md` §73.
+- DECIDED (Phase 11 Gate 11A): Resend is the transactional email
+  provider (TBD-ARCH-005, resolved — see §29/§61). The official
+  `resend` npm package is used directly by a small, isolated
+  `EmailProvider` boundary (§31 above) — domain/application code never
+  imports `resend` itself. A double-gated fake test provider mirrors
+  the Saferpay one exactly (`NODE_ENV !== "production"` AND explicit
+  `E2E_FAKE_EMAIL_PROVIDER=true` opt-in). Gate 11A builds this
+  foundation only; no automatic dispatch is wired into any order/
+  payment code path yet (Gate 11B).
 
 ---
 
@@ -1738,9 +1774,11 @@ supporting TWINT + Visa + Mastercard. Full detail in `08-PAYMENTS.md`
 §4/§70. Production account/contract/credentials remain a deployment
 dependency (TBD-PAY-001 in `08-PAYMENTS.md`), not an architecture TBD.
 
-## TBD-ARCH-005 — Transactional email
+## TBD-ARCH-005 — Transactional email — RESOLVED (Phase 11 Gate 11A)
 
-Select provider.
+**Resolution:** Resend. See §29/§31 above. Production sender-domain
+verification (SPF/DKIM/DMARC) remains a Phase 15 deployment dependency,
+not an architecture TBD.
 
 ## TBD-ARCH-006 — Image storage
 
