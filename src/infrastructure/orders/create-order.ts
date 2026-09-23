@@ -9,6 +9,7 @@ import {
   orderItems,
   orders,
   payments,
+  sellers,
 } from "../database/schema";
 import { reserveOrderNumber } from "../database/order-number-counter";
 import { listActiveCampaignSellers } from "../campaign/campaign-sellers";
@@ -16,6 +17,9 @@ import { calculateOrderTotal } from "@/domain/orders/calculate-order-total";
 import { resolveOrderLines, type OrderLineRequest } from "@/domain/orders/resolve-order-lines";
 import { resolveOrderNumberYear } from "@/domain/orders/resolve-order-number-year";
 import type { CustomerInfoInput } from "@/domain/orders/order-input-schema";
+import { formatSellerName } from "@/domain/sellers/format-seller-name";
+import { dispatchOrderConfirmationEmail } from "@/infrastructure/email/order-confirmation";
+import type { OrderConfirmationEmailInput } from "@/domain/email/order-confirmation-content";
 
 export interface CreateOrderInput extends CustomerInfoInput {
   items: OrderLineRequest[];
@@ -53,7 +57,7 @@ export type CreateOrderResult =
   | { status: "existing"; order: OrderRecord; items: OrderItemRecord[] }
   | { status: "rejected"; reason: CreateOrderRejectReason };
 
-type DbHandle = Pick<typeof db, "transaction">;
+type DbHandle = Pick<typeof db, "transaction" | "select" | "insert">;
 
 async function fetchOrderWithItems(
   tx: Pick<typeof db, "select">,
@@ -65,6 +69,47 @@ async function fetchOrderWithItems(
     throw new Error(`fetchOrderWithItems: order ${orderId} not found immediately after insert.`);
   }
   return { order, items };
+}
+
+/**
+ * Gate 11B — assembles the SELLER-variant confirmation email content
+ * from the just-created (already-committed) order/items, resolving the
+ * seller's display name where assigned (never fabricated when
+ * unassigned — docs/03-USER-FLOWS.md §17).
+ */
+async function buildSellerConfirmationEmailInput(
+  dbHandle: Pick<typeof db, "select">,
+  order: OrderRecord,
+  items: OrderItemRecord[],
+): Promise<OrderConfirmationEmailInput> {
+  let sellerName: string | null = null;
+  if (order.sellerId) {
+    const [seller] = await dbHandle.select().from(sellers).where(eq(sellers.id, order.sellerId));
+    if (seller) {
+      sellerName = formatSellerName(seller);
+    }
+  }
+
+  return {
+    order: {
+      orderNumber: order.orderNumber,
+      customerFirstName: order.customerFirstName,
+      customerLastName: order.customerLastName,
+      customerEmail: order.customerEmail,
+      customerAddress: order.customerAddress,
+      customerPostalCode: order.customerPostalCode,
+      customerCity: order.customerCity,
+      deliveryNote: order.deliveryNote,
+      totalAmount: order.totalAmount,
+    },
+    items: items.map((item) => ({
+      nameSnapshot: item.nameSnapshot,
+      quantity: item.quantity,
+      lineTotalAmount: item.lineTotalAmount,
+    })),
+    paymentMethod: "SELLER",
+    sellerName,
+  };
 }
 
 function isUniqueViolation(error: unknown, constraint: string): boolean {
@@ -110,7 +155,7 @@ export async function createOrder(
   source: "ONLINE" | "MANUAL",
   dbHandle: DbHandle = db,
 ): Promise<CreateOrderResult> {
-  return dbHandle.transaction(async (tx) => {
+  const result: CreateOrderResult = await dbHandle.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.idempotencyKey}))`);
 
     const [alreadyCreated] = await tx
@@ -280,4 +325,45 @@ export async function createOrder(
 
     return { status: "created", order: insertedOrder, items: insertedItems };
   });
+
+  // Gate 11B — automatic confirmation email, public checkout + SELLER
+  // payment only (never MANUAL admin entry — `source === "ONLINE"` is
+  // the smallest, already-existing, reliable distinction the schema
+  // provides; no migration needed). `result.order.status === "CONFIRMED"`
+  // further excludes an ONLINE order that chose TWINT/CARD (status
+  // `NEW` here — that gets its confirmation later, from
+  // `applySuccessfulOnlinePayment()`, once payment is actually
+  // authoritatively confirmed).
+  //
+  // `dbHandle === db`: external post-commit side effects (the Resend
+  // HTTP call) may only run when this function owns the durable
+  // top-level DB handle. A `dbHandle` passed in by a caller (e.g. a
+  // test's own transaction/savepoint) may still be rolled back by that
+  // caller after this function returns — the "commit" `dbHandle.
+  // transaction(...)` just resolved from would then never have
+  // genuinely happened, and dispatching email off the back of it would
+  // be observing a transition that, from the database's perspective,
+  // never occurred.
+  if (
+    result.status === "created" &&
+    source === "ONLINE" &&
+    result.order.status === "CONFIRMED" &&
+    dbHandle === db
+  ) {
+    try {
+      const emailInput = await buildSellerConfirmationEmailInput(
+        dbHandle,
+        result.order,
+        result.items,
+      );
+      await dispatchOrderConfirmationEmail(dbHandle, result.order.id, emailInput);
+    } catch {
+      // Never let a failure here (seller lookup, send, or event
+      // recording) escape into the caller — the order itself already
+      // committed successfully and must be returned as such regardless
+      // (docs/05-ARCHITECTURE.md §30).
+    }
+  }
+
+  return result;
 }

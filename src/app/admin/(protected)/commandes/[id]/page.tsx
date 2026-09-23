@@ -41,6 +41,8 @@ const EVENT_LABELS: Record<string, string> = {
   ORDER_HANDED_TO_SELLER: "Commande remise au vendeur",
   ORDER_DELIVERED: "Commande livrée",
   PAYMENT_CONFIRMED_BY_PROVIDER: "Paiement confirmé par Saferpay",
+  EMAIL_SENT: "E-mail de confirmation envoyé",
+  EMAIL_FAILED: "Échec de l'envoi de l'e-mail de confirmation",
   PAYMENT_ANOMALY_DETECTED: "Anomalie de paiement détectée",
 };
 

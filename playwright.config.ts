@@ -33,6 +33,14 @@ export default defineConfig({
     // the real Saferpay client — double-gated with a NODE_ENV check in
     // online-payments.ts, so this can never activate in production even
     // if the variable leaked into a real deployment's environment.
-    env: { E2E_FAKE_PAYMENT_PROVIDER: "true" },
+    //
+    // Phase 11 Gate 11B: same pattern for the fake email provider
+    // (src/infrastructure/email/fake-test-provider.ts) — critical now
+    // that .env.local holds real Resend credentials (Gate 11A's manual
+    // setup): without this, `pnpm dev` (this webServer) would load
+    // those real credentials via Next.js's own .env.local handling and
+    // Gate 11B's automatic dispatch would attempt real sends for every
+    // e2e test that completes a checkout.
+    env: { E2E_FAKE_PAYMENT_PROVIDER: "true", E2E_FAKE_EMAIL_PROVIDER: "true" },
   },
 });

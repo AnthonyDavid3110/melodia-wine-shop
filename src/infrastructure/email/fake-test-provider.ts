@@ -31,6 +31,8 @@ export interface SentTestEmail {
   subject: string;
   html: string;
   text: string;
+  /** Gate 11B — captured for test inspection only; the fake provider never uses it for deduplication. */
+  idempotencyKey?: string;
   sentAt: Date;
 }
 
@@ -51,6 +53,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailSuccess
     subject: input.subject,
     html: input.html,
     text: input.text,
+    idempotencyKey: input.idempotencyKey,
     sentAt: new Date(),
   });
   return { messageId: id };

@@ -52,6 +52,14 @@ export interface SendEmailInput {
   subject: string;
   html: string;
   text: string;
+  /**
+   * Gate 11B defense-in-depth (docs/dashboard/emails/idempotency-keys,
+   * consulted live in Gate 11A) — forwarded to Resend's own
+   * `Idempotency-Key` mechanism (24h retention) when present. NOT the
+   * primary correctness mechanism; see `order-confirmation.ts`'s
+   * `dispatchOrderConfirmationEmail()`.
+   */
+  idempotencyKey?: string;
 }
 
 export interface SendEmailSuccess {
@@ -134,7 +142,8 @@ const CONFIGURATION_ERROR_NAMES = new Set([
  * `Authorization` header, or the email body — only the caller-visible,
  * already-sanitized error types below ever leave this module.
  *
- * Not called by any order/payment code path in Gate 11A.
+ * Called only from `order-confirmation.ts`'s `dispatchOrderConfirmationEmail()`
+ * (Gate 11B) — application code never calls this adapter directly.
  */
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailSuccess> {
   const config = getResendConfig();
@@ -142,13 +151,16 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailSuccess
 
   let result;
   try {
-    result = await resend.emails.send({
-      from: config.from,
-      to: input.to,
-      subject: input.subject,
-      html: input.html,
-      text: input.text,
-    });
+    result = await resend.emails.send(
+      {
+        from: config.from,
+        to: input.to,
+        subject: input.subject,
+        html: input.html,
+        text: input.text,
+      },
+      input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined,
+    );
   } catch {
     // The SDK's `send()` is documented to resolve with `{data, error}`
     // for API-level failures, but it wraps `fetch` internally — a

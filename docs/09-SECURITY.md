@@ -1159,6 +1159,44 @@ existing "customer-provided text is never trusted HTML" principle
 proving HTML special characters in customer input cannot inject
 markup.
 
+## Phase 11 Gate 11B implementation (adopted)
+
+`dispatchOrderConfirmationEmail()` (`src/infrastructure/email/
+order-confirmation.ts`) records exactly two new `OrderEvent` types —
+`EMAIL_SENT` / `EMAIL_FAILED` — with metadata limited to
+`{emailType, variant}` (success) or `{emailType, variant, category}`
+(failure, `category` one of `configuration` / `provider-rejected` /
+`network` / `unknown`, never the provider's raw message/body, never a
+stack trace). Neither the email subject, HTML, nor plain-text body is
+ever persisted. Verified directly: dedicated unit tests assert a
+rejected-provider error's raw message string never appears anywhere in
+the recorded event.
+
+**Real-credential test-safety finding (Gate 11B):** `.env.local` now
+holds real, working Resend credentials (manually configured before this
+gate, confirmed by a real smoke-test send). Two pre-existing mechanisms
+load `.env.local` automatically — `vitest.setup.ts` for every
+`pnpm test:db` run, and Next.js's own loading for `pnpm dev` (which
+`playwright.config.ts`'s `webServer` spawns) — so, without action, both
+the DB integration suite and the E2E suite would be able to reach the
+real Resend API the moment dispatch became automatic. Addressed by two
+independent, already-established mechanisms, never a new one invented
+for this:
+
+- `playwright.config.ts`'s `webServer.env` now also sets
+  `E2E_FAKE_EMAIL_PROVIDER=true`, alongside the pre-existing
+  `E2E_FAKE_PAYMENT_PROVIDER=true` — the whole E2E suite runs against
+  the double-gated fake email provider, never Resend.
+- DB integration test files that use the real, durably-committing `db`
+  handle (required for `dbHandle === db` dispatch eligibility to fire
+  at all) `vi.mock("@/infrastructure/email/resend-provider", ...)` —
+  the identical technique this suite already used for
+  `@/infrastructure/payments/saferpay-client` before Gate 11B existed.
+  The ~15 other DB integration suites, which exercise `createOrder()`/
+  `confirmOnlinePayment()` only through a `withRollback()` savepoint,
+  require no change at all: the `dbHandle === db` guard itself already
+  excludes them from ever attempting dispatch.
+
 ---
 
 # 61. Email sender
@@ -1179,10 +1217,18 @@ Provider selected: Resend (`05-ARCHITECTURE.md` TBD-ARCH-005, resolved).
 (`src/lib/env.ts`), never `NEXT_PUBLIC_*`, asserted only at the point a
 real send is attempted (`resend-provider.ts`'s `getResendConfig()`) —
 never at module load, matching every other secret in this project.
-Actual SPF/DKIM/DMARC DNS configuration for the real sending domain is
-NOT done in Gate 11A — it remains a Phase 15 production/deployment
-step, and no automatic email dispatch exists yet for it to matter to
-(see `10-IMPLEMENTATION-PLAN.md` Phase 11 Gate 11A/11B).
+
+## Domain verification (manual, outside Gate 11A/11B code)
+
+`ecmelodia.ch` is verified in Resend (sending region: Ireland/
+`eu-west-1`), with the required Resend DNS records configured and
+verified in the authoritative Wix DNS zone, alongside the existing
+Infomaniak mail infrastructure — confirmed working by a real, manually
+authorized smoke-test send (Gate 11A) before Gate 11B wired any
+automatic dispatch. `EMAIL_FROM` is `Les Vins de Mélodia
+<vins@ecmelodia.ch>`. This is infrastructure/DNS configuration, not
+application code — no source file in this repository performs or
+depends on the DNS setup itself.
 
 ---
 
@@ -1645,6 +1691,19 @@ Use managed platform security where appropriate.
   payment credentials, with every dynamic value HTML-escaped before
   interpolation — no template/rendering-framework dependency. See §60
   above.
+- DECIDED (Phase 11 Gate 11B): automatic email dispatch is a best-effort
+  post-commit side effect only — a Resend failure, timeout, or
+  misconfiguration can never roll back, alter, or reinterpret an
+  already-successful order/payment result. `EMAIL_SENT`/`EMAIL_FAILED`
+  `OrderEvent`s carry only a variant and a sanitized failure category,
+  never a raw provider message/body. See §60 above.
+- DECIDED (Phase 11 Gate 11B): automated tests (DB integration and E2E)
+  are structurally prevented from ever reaching the real Resend API,
+  even though `.env.local` now holds real, working credentials — via
+  the existing `E2E_FAKE_EMAIL_PROVIDER` double gate for E2E, and
+  per-file `vi.mock` of the real adapter (mirroring the pre-existing
+  Saferpay-client test pattern) for the DB suites whose "real committed
+  connection" design would otherwise reach it. See §60 above.
 
 ---
 

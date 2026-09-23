@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOrder, type CreateOrderInput } from "@/infrastructure/orders/create-order";
 import {
   campaignProducts,
@@ -14,6 +14,23 @@ import {
 } from "../schema";
 import { unique } from "./fixtures";
 import { db } from "./setup";
+
+// Gate 11B: this file uses real committed `db`, so `createOrder()`'s
+// automatic SELLER-payment email dispatch would otherwise attempt a
+// real Resend call using whatever credentials are in .env.local —
+// mocked so this suite can never send real email. Also lets the
+// idempotency-replay test below assert exactly one dispatch attempt.
+// `importOriginal` preserves the real Email*Error classes that
+// order-confirmation.ts's classifyEmailFailure() does `instanceof`
+// checks against.
+vi.mock("@/infrastructure/email/resend-provider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/infrastructure/email/resend-provider")>();
+  return {
+    ...actual,
+    sendEmail: vi.fn().mockResolvedValue({ messageId: "test-mocked-message-id" }),
+  };
+});
+const { sendEmail: mockedSendEmail } = await import("@/infrastructure/email/resend-provider");
 
 /**
  * Real COMMITTED transactions on purpose (not `withRollback`), exactly
@@ -73,6 +90,10 @@ function customerInput(overrides: Partial<CreateOrderInput> = {}): CreateOrderIn
 
 const createdOrderIds: string[] = [];
 const createdProductIds: string[] = [];
+
+beforeEach(() => {
+  vi.mocked(mockedSendEmail).mockClear();
+});
 
 afterEach(async () => {
   const orderIds = createdOrderIds.splice(0);
@@ -143,6 +164,12 @@ describe("createOrder concurrency", () => {
 
     const rows = await db.select().from(orders).where(eq(orders.idempotencyKey, key));
     expect(rows).toHaveLength(1);
+
+    // Gate 11B: the idempotent "existing" replay must NOT trigger a
+    // second automatic confirmation-email dispatch — only the genuine
+    // "created" winner is eligible. `createOrder()` awaits dispatch
+    // before returning, so this is deterministic, no polling needed.
+    expect(mockedSendEmail).toHaveBeenCalledTimes(1);
   });
 
   it("different concurrent submissions (different keys) each succeed with unique order numbers", async () => {

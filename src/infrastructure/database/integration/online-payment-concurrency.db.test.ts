@@ -38,6 +38,23 @@ vi.mock("@/infrastructure/payments/saferpay-client", () => ({
   capturePayment: vi.fn(),
 }));
 
+// Gate 11B: this file uses real committed `db` (never a rolled-back
+// test transaction), so `applySuccessfulOnlinePayment()`'s automatic
+// email dispatch WOULD attempt a real Resend call using whatever
+// credentials happen to be in .env.local — mocked here exactly like
+// the Saferpay client above so this suite can never send real email.
+// `importOriginal` preserves the real Email*Error classes that
+// order-confirmation.ts's classifyEmailFailure() does `instanceof`
+// checks against (unused by this file's always-resolving mock, but
+// importing an incomplete mock would leave them `undefined`).
+vi.mock("@/infrastructure/email/resend-provider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/infrastructure/email/resend-provider")>();
+  return {
+    ...actual,
+    sendEmail: vi.fn().mockResolvedValue({ messageId: "test-mocked-message-id" }),
+  };
+});
+
 const { initializePaymentPage, assertPaymentPage, capturePayment } =
   await import("@/infrastructure/payments/saferpay-client");
 const { GET: notifyRouteGET } = await import("@/app/api/payments/saferpay/notify/[token]/route");

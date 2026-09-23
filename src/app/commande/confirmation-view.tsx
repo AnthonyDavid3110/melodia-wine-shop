@@ -9,8 +9,10 @@ import type { CheckoutConfirmation } from "./actions";
  * own return value, held in the parent's React state — never fetched
  * from a route addressable by the order number, so there is nothing to
  * enumerate (docs/09-SECURITY.md §22/§23). A refresh loses this view;
- * that is an accepted V1 tradeoff (no email exists yet to re-deliver
- * it, and no durable customer-facing order lookup is in scope).
+ * that is an accepted V1 tradeoff — a best-effort confirmation email
+ * exists since Phase 11 Gate 11B, but it is not a guaranteed/durable
+ * redelivery mechanism (no outbox — see docs/10-IMPLEMENTATION-PLAN.md
+ * Phase 11), and no durable customer-facing order lookup is in scope.
  */
 export function ConfirmationView({ confirmation }: { confirmation: CheckoutConfirmation }) {
   return (

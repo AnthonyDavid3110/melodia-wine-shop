@@ -1033,10 +1033,65 @@ Saferpay (§22 above).
 depends on it; adding it now would be speculative (docs/10-
 IMPLEMENTATION-PLAN.md §16 scope-creep guidance).
 
-Gate 11A builds this foundation only — it is deliberately NOT wired
-into `createOrder()`, checkout, or the online-payment trusted-success
-transition yet. Gate 11B wires dispatch at the proven idempotent
-transition points (see docs/10-IMPLEMENTATION-PLAN.md Phase 11).
+Gate 11A built this foundation only — deliberately not wired into
+`createOrder()`, checkout, or the online-payment trusted-success
+transition. Gate 11B (below) wires dispatch at the proven idempotent
+transition points.
+
+## Phase 11 Gate 11B implementation (adopted)
+
+Two further additions, both thin callers of the existing
+`sendOrderConfirmationEmail()` — no second dispatch implementation:
+
+    src/infrastructure/email/order-confirmation.ts
+        dispatchOrderConfirmationEmail(dbHandle, orderId, input)
+            — send + classify + record EMAIL_SENT/EMAIL_FAILED
+              OrderEvent, never throws (docs/09-SECURITY.md §60's Gate
+              11B subsection). Adds an optional, deterministic,
+              non-PII `order-confirmation/<orderId>` Idempotency-Key,
+              forwarded to Resend as defense-in-depth only.
+
+    src/infrastructure/orders/create-order.ts
+        createOrder() — after its own transaction commits, dispatches
+            the SELLER_PAYMENT confirmation when, and only when,
+            `source === "ONLINE"` AND the just-created order's status
+            is `CONFIRMED` (i.e. public checkout choosing seller
+            payment — never MANUAL admin entry, and never an ONLINE
+            order that chose TWINT/CARD, whose `status` is `NEW` here).
+
+    src/infrastructure/payments/online-payments.ts
+        applySuccessfulOnlinePayment() — its internal transaction now
+            distinguishes an idempotent "already SUCCEEDED" observation
+            from the one call that genuinely performs the trusted
+            success transition; only the latter, after the transaction
+            resolves, dispatches the ONLINE_PAID confirmation. Reuses
+            the exact `SELECT ... FOR UPDATE` lock (§22 above,
+            `08-PAYMENTS.md` §71.3) already proven to make the
+            transition itself exactly-once — no new locking primitive
+            for email.
+
+Both call sites share one architectural guard:
+
+    dbHandle === db
+
+External post-commit side effects (the Resend HTTP call) may only run
+when the function owns the durable top-level DB handle. A `dbHandle`
+passed in by a caller (e.g. a test's own transaction/savepoint) may
+still be rolled back by that caller after the function returns — the
+"commit" its own `dbHandle.transaction(...)` just resolved from would
+then never have genuinely happened. This is not a test-only
+accommodation: it is the only handle either function can be certain
+represents a true commit, verified against the entire existing DB
+integration test suite (four pre-existing "real committed connection"
+suites needed a mocked email provider added; ~15 `withRollback`-based
+suites needed no changes at all, because they never pass this handle).
+
+No queue/worker and no dedicated email/outbox table were introduced
+(docs/10-IMPLEMENTATION-PLAN.md Phase 11 Gate 11B scope) — the
+documented, accepted remaining gap is that a process crash between
+commit and the (best-effort) email attempt can lose a single
+confirmation with no automatic retry; Gate 11C's admin resend is the
+only recovery path, and remains deferred.
 
 ---
 
@@ -1755,9 +1810,19 @@ Do not create ADRs for trivial implementation details.
   `EmailProvider` boundary (§31 above) — domain/application code never
   imports `resend` itself. A double-gated fake test provider mirrors
   the Saferpay one exactly (`NODE_ENV !== "production"` AND explicit
-  `E2E_FAKE_EMAIL_PROVIDER=true` opt-in). Gate 11A builds this
-  foundation only; no automatic dispatch is wired into any order/
-  payment code path yet (Gate 11B).
+  `E2E_FAKE_EMAIL_PROVIDER=true` opt-in). Gate 11A built this
+  foundation only; automatic dispatch is wired in Gate 11B (below).
+- DECIDED (Phase 11 Gate 11B): automatic order-confirmation dispatch is
+  gated on `dbHandle === db` at each call site (never a passed-in
+  transaction/savepoint handle) — the only reliable signal that a
+  business transaction has genuinely, durably committed, as opposed to
+  a nested savepoint whose ultimate fate a caller elsewhere still
+  controls. See §31 above for the full mechanics.
+- DECIDED (Phase 11 Gate 11B): automatic dispatch is limited to public
+  checkout (`source === "ONLINE"`) — both the SELLER-payment and the
+  online-payment-success variants. MANUAL admin-entered orders do not
+  receive an automatic confirmation email; a future admin-triggered
+  send is deferred to Gate 11C.
 
 ---
 

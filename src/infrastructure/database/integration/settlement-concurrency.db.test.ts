@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createOrder, type CreateOrderInput } from "@/infrastructure/orders/create-order";
 import { markCustomerPaymentReceived } from "@/infrastructure/orders/orders";
 import { createSettlement } from "@/infrastructure/settlements/settlements";
@@ -21,6 +21,20 @@ import {
 } from "../schema";
 import { unique } from "./fixtures";
 import { db } from "./setup";
+
+// Gate 11B: this file uses real committed `db`, so `createOrder()`'s
+// automatic SELLER-payment email dispatch would otherwise attempt a
+// real Resend call using whatever credentials are in .env.local —
+// mocked so this suite can never send real email. `importOriginal`
+// preserves the real Email*Error classes that order-confirmation.ts's
+// classifyEmailFailure() does `instanceof` checks against.
+vi.mock("@/infrastructure/email/resend-provider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/infrastructure/email/resend-provider")>();
+  return {
+    ...actual,
+    sendEmail: vi.fn().mockResolvedValue({ messageId: "test-mocked-message-id" }),
+  };
+});
 
 /**
  * Real COMMITTED transactions on purpose (not `withRollback`) — proves

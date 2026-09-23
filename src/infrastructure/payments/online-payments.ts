@@ -1,7 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../database/client";
-import { orderEvents, orders, paymentEvents, payments } from "../database/schema";
+import {
+  orderEvents,
+  orderItems,
+  orders,
+  paymentEvents,
+  payments,
+  sellers,
+} from "../database/schema";
 import { OrderNotFoundError } from "../orders/orders";
 import {
   canConfirmOnlinePaymentSuccess,
@@ -17,6 +24,9 @@ import {
 } from "@/domain/payments/normalize-saferpay-outcome";
 import { type Money } from "@/domain/money";
 import { appUrl } from "@/lib/app-url";
+import { formatSellerName } from "@/domain/sellers/format-seller-name";
+import { dispatchOrderConfirmationEmail } from "@/infrastructure/email/order-confirmation";
+import type { OrderConfirmationEmailInput } from "@/domain/email/order-confirmation-content";
 import * as saferpayClient from "./saferpay-client";
 import * as fakeTestProvider from "./fake-test-provider";
 
@@ -477,6 +487,64 @@ async function recordAnomaly(
 }
 
 /**
+ * Gate 11B — assembles the ONLINE_PAID-variant confirmation email
+ * content from a FRESH post-commit read of the order/items (never
+ * reused from inside the locked transaction — see the call site's
+ * `dbHandle === db` comment for why this read happens after commit).
+ * Order items are immutable once created (BR-PRO-002/BR-PRI-003), so
+ * this re-read cannot observe a different commercial state than the
+ * one that was just paid; only a seller reassignment racing this exact
+ * instant could theoretically show a different seller than the one
+ * present at payment time — a cosmetic, non-financial edge case, not a
+ * correctness concern.
+ */
+async function buildOnlinePaymentConfirmationEmailInput(
+  dbHandle: Pick<typeof db, "select">,
+  orderId: string,
+  method: "TWINT" | "CARD",
+): Promise<OrderConfirmationEmailInput | null> {
+  const [order] = await dbHandle.select().from(orders).where(eq(orders.id, orderId));
+  if (!order) {
+    return null;
+  }
+  const items = await dbHandle.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+
+  let sellerName: string | null = null;
+  if (order.sellerId) {
+    const [seller] = await dbHandle.select().from(sellers).where(eq(sellers.id, order.sellerId));
+    if (seller) {
+      sellerName = formatSellerName(seller);
+    }
+  }
+
+  return {
+    order: {
+      orderNumber: order.orderNumber,
+      customerFirstName: order.customerFirstName,
+      customerLastName: order.customerLastName,
+      customerEmail: order.customerEmail,
+      customerAddress: order.customerAddress,
+      customerPostalCode: order.customerPostalCode,
+      customerCity: order.customerCity,
+      deliveryNote: order.deliveryNote,
+      totalAmount: order.totalAmount,
+    },
+    items: items.map((item) => ({
+      nameSnapshot: item.nameSnapshot,
+      quantity: item.quantity,
+      lineTotalAmount: item.lineTotalAmount,
+    })),
+    paymentMethod: method,
+    sellerName,
+  };
+}
+
+type ApplySuccessTransactionResult =
+  | { status: "SUCCEEDED"; justTransitioned: false }
+  | { status: "SUCCEEDED"; justTransitioned: true; orderId: string; method: "TWINT" | "CARD" }
+  | { status: "PROCESSING" };
+
+/**
  * The single authoritative, concurrency-safe success transaction (Gate
  * 10B §16). `SELECT ... FOR UPDATE` on the Payment row serializes two
  * near-simultaneous confirmations of the SAME attempt (e.g. a browser
@@ -487,13 +555,21 @@ async function recordAnomaly(
  * Saferpay's own `Transaction.Id`, a genuinely provider-issued stable
  * identifier, never a fabricated one (Gate 10B §14) — is the second,
  * independent backstop.
+ *
+ * Gate 11B: the inner transaction distinguishes an idempotent
+ * "already SUCCEEDED" observation from the ONE call that genuinely
+ * performs the transition (`justTransitioned`) — only the latter is
+ * eligible for the post-commit confirmation email dispatched below,
+ * after the transaction has resolved. This is the same row lock that
+ * already made the transition itself exactly-once; no separate
+ * locking primitive is introduced for email.
  */
 async function applySuccessfulOnlinePayment(
   dbHandle: DbHandle,
   paymentId: string,
   successDetails: Extract<SaferpayAssertOutcome, { kind: "success" }> & SaferpaySuccessDetails,
 ): Promise<"SUCCEEDED" | "PROCESSING"> {
-  return dbHandle.transaction(async (tx) => {
+  const result: ApplySuccessTransactionResult = await dbHandle.transaction(async (tx) => {
     const [payment] = await tx
       .select()
       .from(payments)
@@ -503,7 +579,7 @@ async function applySuccessfulOnlinePayment(
       throw new PaymentAttemptNotFoundError();
     }
     if (payment.status === "SUCCEEDED") {
-      return "SUCCEEDED";
+      return { status: "SUCCEEDED", justTransitioned: false };
     }
 
     const [order] = await tx
@@ -529,11 +605,11 @@ async function applySuccessfulOnlinePayment(
         order.id,
         "duplicate-success-another-attempt-already-paid",
       );
-      return "PROCESSING";
+      return { status: "PROCESSING" };
     }
 
     if (!canConfirmOnlinePaymentSuccess(order, payment)) {
-      return "PROCESSING";
+      return { status: "PROCESSING" };
     }
 
     const now = new Date();
@@ -582,6 +658,48 @@ async function applySuccessfulOnlinePayment(
       }
     }
 
-    return "SUCCEEDED";
+    // `payment.method` is always TWINT/CARD for a SAFERPAY attempt —
+    // `initiateOnlinePayment()` only ever accepts those two values when
+    // creating this row; SELLER payments never reach this function.
+    return {
+      status: "SUCCEEDED",
+      justTransitioned: true,
+      orderId: order.id,
+      method: payment.method as "TWINT" | "CARD",
+    };
   });
+
+  // Gate 11B — automatic ONLINE_PAID confirmation email, only for the
+  // ONE call that genuinely performed the transition above (never the
+  // idempotent "already SUCCEEDED" observation Return/Notify/admin
+  // reconciliation retries would otherwise repeatedly trigger).
+  //
+  // `dbHandle === db`: external post-commit side effects (the Resend
+  // HTTP call) may only run when this function owns the durable
+  // top-level DB handle. A `dbHandle` passed in by a caller (e.g. a
+  // test's own transaction/savepoint) may still be rolled back by that
+  // caller after this function returns — the "commit" `dbHandle.
+  // transaction(...)` just resolved from would then never have
+  // genuinely happened, and dispatching email off the back of it would
+  // be observing a transition that, from the database's perspective,
+  // never occurred.
+  if (result.status === "SUCCEEDED" && result.justTransitioned && dbHandle === db) {
+    try {
+      const emailInput = await buildOnlinePaymentConfirmationEmailInput(
+        dbHandle,
+        result.orderId,
+        result.method,
+      );
+      if (emailInput) {
+        await dispatchOrderConfirmationEmail(dbHandle, result.orderId, emailInput);
+      }
+    } catch {
+      // Never let a failure here (re-read, send, or event recording)
+      // escape into the caller — the payment/order transition already
+      // committed successfully and must be returned as such regardless
+      // (docs/05-ARCHITECTURE.md §30).
+    }
+  }
+
+  return result.status;
 }

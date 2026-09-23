@@ -84,12 +84,23 @@ describe("sendEmail — request shape", () => {
   it("sends the correct sender, recipient, subject, html and text", async () => {
     mockSend.mockResolvedValue({ data: { id: "msg-123" }, error: null });
     await sendEmail(INPUT);
-    expect(mockSend).toHaveBeenCalledWith({
-      from: "Les Vins de Mélodia <test@example.test>",
-      to: "jean@example.ch",
-      subject: INPUT.subject,
-      html: INPUT.html,
-      text: INPUT.text,
+    expect(mockSend).toHaveBeenCalledWith(
+      {
+        from: "Les Vins de Mélodia <test@example.test>",
+        to: "jean@example.ch",
+        subject: INPUT.subject,
+        html: INPUT.html,
+        text: INPUT.text,
+      },
+      undefined,
+    );
+  });
+
+  it("Gate 11B: forwards a provided idempotencyKey as the SDK's second argument", async () => {
+    mockSend.mockResolvedValue({ data: { id: "msg-123" }, error: null });
+    await sendEmail({ ...INPUT, idempotencyKey: "order-confirmation/abc-123" });
+    expect(mockSend).toHaveBeenCalledWith(expect.anything(), {
+      idempotencyKey: "order-confirmation/abc-123",
     });
   });
 

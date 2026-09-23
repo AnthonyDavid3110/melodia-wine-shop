@@ -1951,7 +1951,7 @@ Application implementation:
     Phase 8   Offline payment and seller workflows COMPLETE
     Phase 9   Preparation and fulfilment           COMPLETE
     Phase 10  Online payments                      COMPLETE
-    Phase 11  Transactional email                   Gate 11A IN PROGRESS
+    Phase 11  Transactional email                   Gate 11B COMPLETE (Gate 11C pending/optional)
     Phase 12+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
@@ -2216,10 +2216,107 @@ replay) remains the authoritative correctness mechanism; a stable
 later as defense-in-depth once dispatch actually exists to key it to.
 Covered by unit tests only (content builder, HTML escaping, both
 provider adapters, provider-selection guard) — no DB integration test
-was added, since Gate 11A performs no DB mutation of its own; Gate 11B
-carries the real-DB idempotency/concurrency tests once dispatch is
-wired in. Phase 11 must not be marked COMPLETE until Gate 11B (at
-minimum) is done.
+was added, since Gate 11A performs no DB mutation of its own. Gate 11A
+is now **complete** — validated with a real, manually authorized Resend
+smoke test (real adapter, real `buildOrderConfirmationEmail()` content,
+delivered to a real inbox and visually confirmed) before Gate 11B wired
+any automatic dispatch.
+
+Phase 11 Gate 11B (transactional email dispatch integration) implements
+automatic dispatch for both customer-facing payment paths. Wired,
+exactly at the two proven idempotent transition points identified by
+the Gate 11B inspection, never at every retry/replay:
+
+- `createOrder()` (`src/infrastructure/orders/create-order.ts`) —
+  dispatches the SELLER_PAYMENT confirmation after its own transaction
+  commits, gated on `result.status === "created" && source === "ONLINE"
+  && result.order.status === "CONFIRMED"` — explicitly excludes MANUAL
+  admin-entered orders (`source`, not order status alone, is the
+  distinguishing signal — no schema change needed) and excludes an
+  ONLINE order that chose TWINT/CARD (status `NEW` here; that order
+  gets its confirmation later, from the path below).
+- `applySuccessfulOnlinePayment()`
+  (`src/infrastructure/payments/online-payments.ts`) — its internal
+  transaction now distinguishes an idempotent "already SUCCEEDED"
+  observation from the one call that genuinely performs the trusted
+  success transition (`justTransitioned`); only the latter, after the
+  transaction resolves, dispatches the ONLINE_PAID confirmation. Used
+  identically by the Return route, the Notify route, and admin manual
+  reconciliation — none of them needed their own dispatch logic.
+
+Both call sites share the `dbHandle === db` architectural guard
+(external post-commit side effects may only run when the function owns
+the durable top-level DB handle — see `05-ARCHITECTURE.md` §31 for the
+full reasoning), and both wrap the entire post-commit block in a
+top-level try/catch so a failure anywhere in the email path (seller
+lookup, send, or event recording) can never alter the already-committed
+business result.
+
+`EMAIL_SENT`/`EMAIL_FAILED` `OrderEvent`s are recorded by a new shared
+`dispatchOrderConfirmationEmail()` (`order-confirmation.ts`), with
+`{emailType, variant}` / `{emailType, variant, category}` metadata only
+— never a raw provider message, body, or secret. A deterministic,
+non-PII `order-confirmation/<orderId>` Resend `Idempotency-Key` is
+forwarded as defense-in-depth only, explicitly documented as not a
+substitute for the DB-level exactly-once guarantee. `commandes/[id]/
+page.tsx`'s admin event-label map gained the two new French labels. No
+database migration — `orderEvents.type` remains plain text.
+
+**Real-credential test-safety, verified structurally:**
+`playwright.config.ts`'s `webServer.env` now also sets
+`E2E_FAKE_EMAIL_PROVIDER=true`; the four pre-existing DB integration
+suites that use the real, durably-committing `db` handle (required for
+the `dbHandle === db` guard to ever fire) now `vi.mock(
+"@/infrastructure/email/resend-provider", ...)`, mirroring the
+pre-existing Saferpay-client mock pattern in those same files. The
+remaining ~15 DB suites needed no change — the `dbHandle === db` guard
+itself already excludes every `withRollback()`-based test.
+
+**Test coverage added:** unit tests for `dispatchOrderConfirmationEmail`
+(variant selection, idempotency-key derivation, all four failure
+categories, never-throws guarantee) and the Resend adapter's
+idempotency-key passthrough; a dedicated DB integration suite
+(`order-confirmation-email.db.test.ts`) proving, against real committed
+connections: exactly-one dispatch for a genuinely created SELLER order,
+zero dispatch for an idempotent checkout replay, zero dispatch for a
+MANUAL order, EMAIL_FAILED recorded (order otherwise unaffected) on a
+simulated send failure, exactly-one dispatch for the first authoritative
+online success, zero on a subsequent idempotent confirmation call, and
+exactly-one even under a genuine concurrent Return/Notify-style race;
+the pre-existing `create-order-concurrency.db.test.ts` idempotency-key
+race test was also extended with a dispatch-count assertion. A new
+Playwright suite (`e2e/order-confirmation-email.spec.ts`) drives both
+real customer-facing flows through an actual browser (SELLER checkout,
+TWINT success, a cancelled payment, and a repeated Return-then-Notify
+sequence) and verifies dispatch through the same DB-observable
+`EMAIL_SENT`/`EMAIL_FAILED` events and `variant` metadata other specs
+already use for OrderEvent verification — never a new test-only
+inspection route, and never the real Resend API. All of the above is
+**verified, not just written**: `pnpm test` (425/425), `pnpm test:db`
+(253/253 across 22 files), and `pnpm test:e2e` (60/60, including the 4
+new browser-driven email scenarios and all 56 pre-existing specs
+unaffected) all pass against a real local PostgreSQL instance.
+
+**Known, deliberately accepted limitation (no outbox, unchanged from
+Gate 11A's own framing):** a process crash between the business
+transaction's commit and the (best-effort) email attempt can lose a
+single confirmation with no automatic retry; a crash between a
+successful send and the `EMAIL_SENT` write leaves local observability
+incomplete without affecting delivery. Neither is a duplicate-send or
+financial-correctness risk — both are closed at the DB level (row lock
++ idempotency-key unique constraint), independent of email. No
+migration/outbox was introduced to close these narrower gaps, per the
+gate's own explicit scope.
+
+**Deliberately not done in this gate**, unchanged/still deferred: admin
+resend UI (Gate 11C); password-reset email; seller notification email
+(not V1); marketing/broadcast email; PDF/CSV/invoice/refund/shipment
+email content.
+
+Gate 11B is now **verified complete** — pending your final commit
+approval. Phase 11 overall must still not be marked COMPLETE until Gate
+11C (admin resend, currently deferred/optional) is either implemented
+or an explicit decision is made that it is not required for launch.
 
 The project was specified before implementation.
 
