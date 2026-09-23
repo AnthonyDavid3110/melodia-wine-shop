@@ -12,6 +12,7 @@ import {
   SellerReassignmentBlockedError,
   assignOrderSeller,
   cancelOrder,
+  getOrderDetail,
   markCustomerPaymentReceived,
   updateOrderCustomerInfo,
 } from "@/infrastructure/orders/orders";
@@ -25,6 +26,9 @@ import {
   NoReconcilablePaymentAttemptError,
   reconcileOnlinePaymentForOrder,
 } from "@/infrastructure/payments/online-payments";
+import { resendOrderConfirmation } from "@/infrastructure/email/order-confirmation";
+import { confirmationEligibilityReasonLabel } from "@/domain/email/resolve-confirmation-eligibility";
+import { db } from "@/infrastructure/database/client";
 
 export interface CustomerInfoFormState {
   errors?: Partial<Record<string, string[]>>;
@@ -218,4 +222,52 @@ export async function reconcileOnlinePaymentAction(
   revalidatePath(`/admin/commandes/${orderId}`);
   revalidatePath("/admin/commandes");
   return {};
+}
+
+export interface ResendConfirmationState {
+  formError?: string;
+  success?: boolean;
+}
+
+/**
+ * Manual admin resend (Phase 11 Gate 11C). Re-reads order/items/
+ * payments fresh via `getOrderDetail()` — the exact same read this
+ * page itself uses — so eligibility and variant are always derived
+ * from current authoritative state, never trusted from the browser
+ * (only `orderId`, the route param every sibling action already uses,
+ * ever crosses that boundary). Delegates entirely to
+ * `resendOrderConfirmation()`, which itself delegates to the same
+ * `dispatchOrderConfirmationEmail()` Gate 11B's automatic dispatch
+ * uses — no second send/record implementation.
+ */
+export async function resendOrderConfirmationAction(
+  orderId: string,
+  _prevState: ResendConfirmationState,
+  _formData: FormData,
+): Promise<ResendConfirmationState> {
+  const admin = await requireAdmin();
+
+  const detail = await getOrderDetail(orderId);
+  if (!detail) {
+    return { formError: "Commande introuvable." };
+  }
+
+  const result = await resendOrderConfirmation(
+    db,
+    orderId,
+    detail.order,
+    detail.items,
+    detail.payments,
+    admin.adminId,
+  );
+
+  revalidatePath(`/admin/commandes/${orderId}`);
+
+  if (result.status === "INELIGIBLE") {
+    return { formError: confirmationEligibilityReasonLabel(result.reason) };
+  }
+  if (result.status === "FAILED") {
+    return { formError: "L'e-mail de confirmation n'a pas pu être envoyé. Veuillez réessayer." };
+  }
+  return { success: true };
 }

@@ -1197,6 +1197,81 @@ for this:
   require no change at all: the `dbHandle === db` guard itself already
   excludes them from ever attempting dispatch.
 
+## Phase 11 Gate 11C implementation (adopted)
+
+The admin "Renvoyer la confirmation" action
+(`resendOrderConfirmationAction`,
+`src/app/admin/(protected)/commandes/[id]/actions.ts`) is a protected
+Server Action: it calls `requireAdmin()` first and unconditionally,
+exactly like every other order-mutating admin action in this file
+(`cancelOrderAction`, `markPaymentReceivedAction`, …). Hiding the button
+for an unauthenticated/unauthorized caller is a UX convenience, never
+the enforcement boundary (§21 above).
+
+**Recipient and variant are always server-derived, never accepted from
+the browser.** The Server Action takes only `orderId` (from the page's
+existing route param) — no recipient, subject, body, or variant field
+exists anywhere in the request. `resendOrderConfirmation()`
+(`src/infrastructure/email/order-confirmation.ts`) independently
+re-reads the order, its items and its payments from the database inside
+the action, and re-runs `resolveOrderConfirmationEligibility()`
+(`src/domain/email/resolve-confirmation-eligibility.ts`) against that
+freshly-read state — it never trusts a client-supplied eligibility
+result, never trusts prior `EMAIL_SENT` history, and never trusts
+`order.source`. This matches Gate 11B's principle for automatic
+dispatch (§60 above) applied to the manual path.
+
+**Manual-resend idempotency — a deliberately narrower guarantee than
+automatic dispatch, documented rather than engineered around.** Each
+authenticated invocation of `resendOrderConfirmationAction` generates a
+fresh, server-side, non-PII `randomUUID()` and derives the Resend
+`Idempotency-Key` as `order-confirmation/resend/${orderId}/${attemptId}`
+— never accepted from the browser, never persisted for lookup. This
+protects a single invocation from being internally retried twice by the
+Resend client, but — unlike the automatic path's stable
+`order-confirmation/${orderId}` key — it does **not** prevent two
+separate Server Action invocations (e.g. a genuine browser replay, or an
+admin clicking twice in two tabs) from each sending a real email. This
+was an explicit, approved scope decision: Gate 11C intentionally does
+not add a database table, row lock, or durable request token purely to
+provide stronger cross-request idempotency for an admin-initiated,
+low-frequency, already-audited action. The UI mitigates the common case
+by disabling the confirm button while the action is pending.
+
+**Audit trail reuses the existing `EMAIL_SENT`/`EMAIL_FAILED`
+`OrderEvent` types and columns — no new PII, no new table.** Every event
+now carries `trigger: "AUTOMATIC" | "ADMIN_RESEND"` in `metadata`
+(existing Gate 11B events recorded before this gate have no `trigger`
+key and are treated as legacy/automatic by the admin UI — never
+rewritten, per §17/§18 above). For `ADMIN_RESEND`, `actorType = "ADMIN"`
+and `adminUserId` is set to the authenticated admin's own ID, reusing
+`orderEvents`' existing actor columns exactly as other admin actions
+already do (e.g. `markPaymentReceivedAction`) — no admin email or name
+is written into `metadata`.
+
+**Failure feedback never exposes provider internals.** On
+`EmailConfigurationError`/`EmailProviderRejectedError`/`EmailNetworkError`,
+the Server Action returns a single fixed French sentence ("L'e-mail de
+confirmation n'a pas pu être envoyé. Veuillez réessayer.") and records
+`EMAIL_FAILED` with the same sanitized `{emailType, variant, category}`
+metadata shape Gate 11B already established (§60 above) — never the raw
+provider message, response body, or stack trace. A failed send never
+mutates `order.status`, `customerPaymentStatus`, or
+`sellerSettlementStatus` (§10 Rule 10 above): the send is attempted
+strictly after all order state has already been read, and no write to
+`orders` occurs anywhere in this code path.
+
+**Test safety.** The new DB integration suite
+(`resend-confirmation.db.test.ts`) is the one `withRollback()`-based
+suite that can reach real dispatch code, because
+`resendOrderConfirmation()` has no `dbHandle === db` gate (manual resend
+must work inside whatever transaction the caller uses); it therefore
+`vi.mock`s `@/infrastructure/email/resend-provider` the same way the
+~4 real-`db` Gate 11B suites already do (§60 above). The new E2E spec
+(`resend-confirmation.spec.ts`) runs, like every other E2E spec, against
+`E2E_FAKE_EMAIL_PROVIDER=true` — no automated test in this repository
+can reach the real Resend API.
+
 ---
 
 # 61. Email sender
@@ -1704,6 +1779,14 @@ Use managed platform security where appropriate.
   per-file `vi.mock` of the real adapter (mirroring the pre-existing
   Saferpay-client test pattern) for the DB suites whose "real committed
   connection" design would otherwise reach it. See §60 above.
+- DECIDED (Phase 11 Gate 11C): the admin manual-resend action always
+  re-derives recipient and variant from freshly-read, currently
+  persisted order/payment state — never from prior email history, the
+  browser, or `order.source`. Its idempotency key is a fresh
+  server-generated ID per invocation, which protects a single invocation
+  from internal retries but deliberately does not guarantee
+  cross-request exactly-once delivery; that limitation is accepted
+  rather than solved with new durable state. See §60 above.
 
 ---
 

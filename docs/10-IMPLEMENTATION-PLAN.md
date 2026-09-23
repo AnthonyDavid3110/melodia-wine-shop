@@ -1951,7 +1951,7 @@ Application implementation:
     Phase 8   Offline payment and seller workflows COMPLETE
     Phase 9   Preparation and fulfilment           COMPLETE
     Phase 10  Online payments                      COMPLETE
-    Phase 11  Transactional email                   Gate 11B COMPLETE (Gate 11C pending/optional)
+    Phase 11  Transactional email                   COMPLETE
     Phase 12+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
@@ -2313,10 +2313,86 @@ resend UI (Gate 11C); password-reset email; seller notification email
 (not V1); marketing/broadcast email; PDF/CSV/invoice/refund/shipment
 email content.
 
-Gate 11B is now **verified complete** — pending your final commit
-approval. Phase 11 overall must still not be marked COMPLETE until Gate
-11C (admin resend, currently deferred/optional) is either implemented
-or an explicit decision is made that it is not required for launch.
+Gate 11B was **verified complete** and committed
+(`8e64eaabe2d61edacb442c8817e8c5c2e568aad6`).
+
+## Phase 11 Gate 11C — Admin manual resend (verified complete)
+
+Adds a single admin-facing action — "Renvoyer la confirmation" on the
+existing order-detail page (`/admin/commandes/[id]`) — for the two
+operational cases Gate 11B's best-effort automatic dispatch cannot
+cover: the narrow no-outbox crash window (§ above), and a customer
+reporting non-receipt. This is explicitly a manual, admin-initiated
+action, not an automatic retry/outbox system.
+
+Eligibility and email variant (`ONLINE_PAID` vs `SELLER_PAYMENT`) are
+always re-derived server-side from currently persisted order/payment
+state by a new pure function,
+`resolveOrderConfirmationEligibility()`
+(`src/domain/email/resolve-confirmation-eligibility.ts`) — never from
+prior `EMAIL_SENT` history, the browser, or `order.source`. A
+`SELLER`-payment order already marked `customerPaymentStatus = PAID` is
+ineligible (the original "payment still due" wording would be stale);
+a `CANCELLED` order is always ineligible; fulfilment progression
+(`PREPARED`/`HANDED_TO_SELLER`/`DELIVERED`) never affects eligibility,
+matching the existing order-status/payment-status independence
+principle (§ Order status above). `MANUAL` orders are eligible under
+the identical `SELLER_PAYMENT` predicate as public checkout orders —
+this does not change Gate 11B, which still sends zero automatic email
+for `MANUAL` orders.
+
+The duplicated order→email-input construction logic from Gate 11B's two
+automatic call sites was extracted into a small shared
+`buildOrderConfirmationEmailInput()`
+(`src/infrastructure/email/order-confirmation.ts`), used unchanged by
+both the automatic paths and the new manual path — a mechanical
+refactor verified not to change Gate 11B's own behaviour (its full
+existing regression suite passes unchanged). `dispatchOrderConfirmationEmail()`
+now records `trigger: "AUTOMATIC" | "ADMIN_RESEND"` in `OrderEvent`
+metadata (pre-Gate-11C events have no `trigger` key and are treated as
+legacy/automatic by the admin UI — never rewritten); for
+`ADMIN_RESEND`, `actorType`/`adminUserId` reuse the existing
+`orderEvents` actor columns for the authenticated admin, no new PII.
+
+**Manual-resend idempotency is intentionally narrower than the
+automatic path**, an explicit, approved scope decision: each invocation
+generates a fresh, server-side, non-PII `randomUUID()` and derives the
+Resend idempotency key as
+`order-confirmation/resend/${orderId}/${attemptId}` (vs. the automatic
+path's stable `order-confirmation/${orderId}`). This protects a single
+invocation from internal retries but does not guarantee cross-request
+exactly-once delivery — a genuinely replayed/duplicate Server Action
+invocation can send a second email. No table, lock, or durable request
+token was added to close this gap; the UI mitigates the common case by
+disabling the confirm button while pending.
+
+New/changed files: `src/domain/email/resolve-confirmation-eligibility.ts`
+(+ test), `src/infrastructure/email/order-confirmation.ts` (extended,
++ test updates), `src/infrastructure/orders/create-order.ts` and
+`src/infrastructure/payments/online-payments.ts` (mechanical refactor
+to the shared builder), `src/app/admin/(protected)/commandes/[id]/
+actions.ts` (new `resendOrderConfirmationAction`), `.../
+resend-confirmation-button.tsx` (new), `.../page.tsx` (button/history
+wiring). No migration, no new dependency.
+
+Verified: `pnpm test` (450/450 across 42 files), `pnpm test:db`
+(262/262 across 23 files, including the new
+`resend-confirmation.db.test.ts`), `pnpm test:e2e` (63/63, including 3
+new browser-driven scenarios and all pre-existing specs — including
+Gate 11B's own 4 email scenarios — unaffected), `pnpm build`,
+`pnpm lint`, `pnpm format:check` all clean. The new DB suite
+`vi.mock`s the real Resend adapter (the one `withRollback()`-based
+suite able to reach dispatch code, since manual resend has no
+`dbHandle === db` gate); the new E2E spec runs against
+`E2E_FAKE_EMAIL_PROVIDER=true` like every other spec — no automated
+test reaches the real Resend API.
+
+**Phase 11 — Transactional email: COMPLETE.** All three gates (11A
+foundation, 11B automatic dispatch, 11C admin manual resend) are
+implemented and verified. Deferred, unchanged: password-reset email,
+seller notification email (not V1), marketing/broadcast email,
+PDF/CSV/invoice/refund/shipment email content, and the no-outbox crash
+window documented above (accepted, not a financial-correctness risk).
 
 The project was specified before implementation.
 

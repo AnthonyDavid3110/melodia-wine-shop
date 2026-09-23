@@ -13,7 +13,7 @@ vi.mock("./resend-provider", async (importOriginal) => {
 });
 vi.mock("./fake-test-provider", () => ({ sendEmail: mockFakeSend }));
 
-const { sendOrderConfirmationEmail, dispatchOrderConfirmationEmail } =
+const { sendOrderConfirmationEmail, dispatchOrderConfirmationEmail, resendOrderConfirmation } =
   await import("./order-confirmation");
 const { EmailNetworkError, EmailProviderRejectedError } = await import("./resend-provider");
 
@@ -134,7 +134,11 @@ describe("dispatchOrderConfirmationEmail — Gate 11B", () => {
         type: "EMAIL_SENT",
         actorType: "SYSTEM",
         adminUserId: null,
-        metadata: { emailType: "ORDER_CONFIRMATION", variant: "SELLER_PAYMENT" },
+        metadata: {
+          emailType: "ORDER_CONFIRMATION",
+          variant: "SELLER_PAYMENT",
+          trigger: "AUTOMATIC",
+        },
       }),
     );
   });
@@ -150,12 +154,12 @@ describe("dispatchOrderConfirmationEmail — Gate 11B", () => {
 
     expect(values).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: { emailType: "ORDER_CONFIRMATION", variant: "ONLINE_PAID" },
+        metadata: { emailType: "ORDER_CONFIRMATION", variant: "ONLINE_PAID", trigger: "AUTOMATIC" },
       }),
     );
   });
 
-  it("passes a deterministic order-scoped idempotency key to the provider", async () => {
+  it("passes a deterministic order-scoped idempotency key to the provider (AUTOMATIC, default)", async () => {
     mockRealSend.mockResolvedValue({ messageId: "sent-3" });
     const { insert } = fakeEventDbHandle();
 
@@ -163,6 +167,57 @@ describe("dispatchOrderConfirmationEmail — Gate 11B", () => {
 
     expect(mockRealSend).toHaveBeenCalledWith(
       expect.objectContaining({ idempotencyKey: "order-confirmation/order-3" }),
+    );
+  });
+
+  it("Gate 11C: ADMIN_RESEND uses a fresh per-attempt key, never the automatic per-order key", async () => {
+    mockRealSend.mockResolvedValue({ messageId: "sent-resend-1" });
+    const { insert } = fakeEventDbHandle();
+
+    await dispatchOrderConfirmationEmail({ insert } as never, "order-9", INPUT, {
+      trigger: "ADMIN_RESEND",
+      actor: { type: "ADMIN", adminUserId: "admin-1" },
+    });
+
+    const [call] = mockRealSend.mock.calls;
+    const key = call?.[0]?.idempotencyKey as string;
+    expect(key).toMatch(/^order-confirmation\/resend\/order-9\/[0-9a-f-]{36}$/);
+    expect(key).not.toBe("order-confirmation/order-9");
+  });
+
+  it("Gate 11C: two ADMIN_RESEND dispatches for the same order get two DIFFERENT keys — an intentional second resend always sends", async () => {
+    mockRealSend.mockResolvedValue({ messageId: "sent-resend-2" });
+    const { insert: insertA } = fakeEventDbHandle();
+    const { insert: insertB } = fakeEventDbHandle();
+
+    await dispatchOrderConfirmationEmail({ insert: insertA } as never, "order-10", INPUT, {
+      trigger: "ADMIN_RESEND",
+      actor: { type: "ADMIN", adminUserId: "admin-1" },
+    });
+    await dispatchOrderConfirmationEmail({ insert: insertB } as never, "order-10", INPUT, {
+      trigger: "ADMIN_RESEND",
+      actor: { type: "ADMIN", adminUserId: "admin-1" },
+    });
+
+    const keys = mockRealSend.mock.calls.map((call) => call[0]?.idempotencyKey as string);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it("Gate 11C: ADMIN_RESEND records actorType ADMIN and the admin's id on the OrderEvent", async () => {
+    mockRealSend.mockResolvedValue({ messageId: "sent-resend-3" });
+    const { insert, values } = fakeEventDbHandle();
+
+    await dispatchOrderConfirmationEmail({ insert } as never, "order-11", INPUT, {
+      trigger: "ADMIN_RESEND",
+      actor: { type: "ADMIN", adminUserId: "admin-42" },
+    });
+
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorType: "ADMIN",
+        adminUserId: "admin-42",
+        metadata: expect.objectContaining({ trigger: "ADMIN_RESEND" }),
+      }),
     );
   });
 
@@ -180,6 +235,7 @@ describe("dispatchOrderConfirmationEmail — Gate 11B", () => {
         metadata: {
           emailType: "ORDER_CONFIRMATION",
           variant: "SELLER_PAYMENT",
+          trigger: "AUTOMATIC",
           category: "provider-rejected",
         },
       }),
@@ -224,7 +280,7 @@ describe("dispatchOrderConfirmationEmail — Gate 11B", () => {
 
     await expect(
       dispatchOrderConfirmationEmail({ insert } as never, "order-7", INPUT),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ status: "EMAIL_SENT" });
   });
 
   it("never throws even when the send fails AND the event write fails", async () => {
@@ -235,6 +291,168 @@ describe("dispatchOrderConfirmationEmail — Gate 11B", () => {
 
     await expect(
       dispatchOrderConfirmationEmail({ insert } as never, "order-8", INPUT),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ status: "EMAIL_FAILED" });
+  });
+});
+
+describe("resendOrderConfirmation — Gate 11C", () => {
+  function fakeResendDbHandle() {
+    const values = vi.fn().mockResolvedValue(undefined);
+    const insert = vi.fn().mockReturnValue({ values });
+    // `sellerId: null` on every order below avoids exercising the
+    // seller-lookup `select()` path — that path is covered by the DB
+    // integration suite against a real database; this unit test is
+    // about eligibility/dispatch wiring, not seller-name resolution.
+    const select = vi.fn();
+    return { insert, values, select };
+  }
+
+  const baseOrder = {
+    orderNumber: "ECM-2026-0099",
+    customerFirstName: "Jean",
+    customerLastName: "Dupont",
+    customerEmail: "jean@example.ch",
+    customerAddress: "Rue du Lac 15",
+    customerPostalCode: "1400",
+    customerCity: "Yverdon-les-Bains",
+    deliveryNote: null,
+    totalAmount: 1800,
+    sellerId: null,
+  };
+  const items = [{ nameSnapshot: "Chasselas", quantity: 1, lineTotalAmount: 1800 }];
+
+  beforeEach(() => {
+    delete process.env.E2E_FAKE_EMAIL_PROVIDER;
+  });
+
+  it("eligible SELLER order: sends SELLER_PAYMENT and reports SENT", async () => {
+    mockRealSend.mockResolvedValue({ messageId: "resend-1" });
+    const { insert, values, select } = fakeResendDbHandle();
+
+    const result = await resendOrderConfirmation(
+      { select, insert } as never,
+      "order-20",
+      { ...baseOrder, status: "CONFIRMED", customerPaymentStatus: "PENDING" },
+      items,
+      [{ provider: "OFFLINE", method: "SELLER", status: "PENDING" }],
+      "admin-1",
+    );
+
+    expect(result).toEqual({ status: "SENT" });
+    expect(mockRealSend).toHaveBeenCalledTimes(1);
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorType: "ADMIN",
+        adminUserId: "admin-1",
+        metadata: expect.objectContaining({ variant: "SELLER_PAYMENT", trigger: "ADMIN_RESEND" }),
+      }),
+    );
+    expect(insert).toHaveBeenCalledTimes(1);
+  });
+
+  it("eligible ONLINE_PAID order: sends ONLINE_PAID and reports SENT", async () => {
+    mockRealSend.mockResolvedValue({ messageId: "resend-2" });
+    const { insert, values, select } = fakeResendDbHandle();
+
+    const result = await resendOrderConfirmation(
+      { select, insert } as never,
+      "order-21",
+      { ...baseOrder, status: "DELIVERED", customerPaymentStatus: "PAID" },
+      items,
+      [{ provider: "SAFERPAY", method: "TWINT", status: "SUCCEEDED" }],
+      "admin-1",
+    );
+
+    expect(result).toEqual({ status: "SENT" });
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ variant: "ONLINE_PAID" }),
+      }),
+    );
+  });
+
+  it("ineligible order: does NOT call the provider, reports INELIGIBLE with a reason, writes no event", async () => {
+    const { insert, select } = fakeResendDbHandle();
+
+    const result = await resendOrderConfirmation(
+      { select, insert } as never,
+      "order-22",
+      { ...baseOrder, status: "CANCELLED", customerPaymentStatus: "PENDING" },
+      items,
+      [{ provider: "OFFLINE", method: "SELLER", status: "PENDING" }],
+      "admin-1",
+    );
+
+    expect(result).toEqual({ status: "INELIGIBLE", reason: "order-cancelled" });
+    expect(mockRealSend).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("a SELLER order already marked PAID is INELIGIBLE — never resends the payment-due template", async () => {
+    const { insert, select } = fakeResendDbHandle();
+
+    const result = await resendOrderConfirmation(
+      { select, insert } as never,
+      "order-23",
+      { ...baseOrder, status: "CONFIRMED", customerPaymentStatus: "PAID" },
+      items,
+      [{ provider: "OFFLINE", method: "SELLER", status: "SUCCEEDED" }],
+      "admin-1",
+    );
+
+    expect(result).toEqual({ status: "INELIGIBLE", reason: "seller-payment-not-pending" });
+    expect(mockRealSend).not.toHaveBeenCalled();
+  });
+
+  it("provider failure: reports FAILED and still records the ADMIN_RESEND EMAIL_FAILED event", async () => {
+    mockRealSend.mockRejectedValue(new EmailNetworkError());
+    const { insert, values, select } = fakeResendDbHandle();
+
+    const result = await resendOrderConfirmation(
+      { select, insert } as never,
+      "order-24",
+      { ...baseOrder, status: "CONFIRMED", customerPaymentStatus: "PENDING" },
+      items,
+      [{ provider: "OFFLINE", method: "SELLER", status: "PENDING" }],
+      "admin-1",
+    );
+
+    expect(result).toEqual({ status: "FAILED" });
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "EMAIL_FAILED",
+        actorType: "ADMIN",
+        metadata: expect.objectContaining({ trigger: "ADMIN_RESEND", category: "network" }),
+      }),
+    );
+  });
+
+  it("an intentional second resend of the same order actually sends again", async () => {
+    mockRealSend.mockResolvedValue({ messageId: "resend-again" });
+    const first = fakeResendDbHandle();
+    const second = fakeResendDbHandle();
+    const order = { ...baseOrder, status: "CONFIRMED", customerPaymentStatus: "PENDING" };
+    const payments = [{ provider: "OFFLINE", method: "SELLER", status: "PENDING" }];
+
+    await resendOrderConfirmation(
+      { select: first.select, insert: first.insert } as never,
+      "order-25",
+      order,
+      items,
+      payments,
+      "admin-1",
+    );
+    await resendOrderConfirmation(
+      { select: second.select, insert: second.insert } as never,
+      "order-25",
+      order,
+      items,
+      payments,
+      "admin-1",
+    );
+
+    expect(mockRealSend).toHaveBeenCalledTimes(2);
+    const keys = mockRealSend.mock.calls.map((call) => call[0]?.idempotencyKey as string);
+    expect(keys[0]).not.toBe(keys[1]);
   });
 });

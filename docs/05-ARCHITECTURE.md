@@ -1091,11 +1091,75 @@ No queue/worker and no dedicated email/outbox table were introduced
 documented, accepted remaining gap is that a process crash between
 commit and the (best-effort) email attempt can lose a single
 confirmation with no automatic retry; Gate 11C's admin resend is the
-only recovery path, and remains deferred.
+only recovery path — see below.
 
----
+## Phase 11 Gate 11C implementation (adopted)
 
-# 32. Image storage
+Manual admin recovery for the Gate 11B gap above — an authenticated
+administrator can resend the appropriate confirmation from
+`/admin/commandes/[id]`.
+
+    src/domain/email/resolve-confirmation-eligibility.ts
+        resolveOrderConfirmationEligibility(order, payments)
+            — pure, mirrors payment-guards.ts's style. Derives
+              eligibility/variant from CURRENT persisted state only
+              (never prior email history, never source, never
+              fulfilment status): a SUCCEEDED SAFERPAY payment ⇒
+              ONLINE_PAID; a SELLER-method payment AND
+              customerPaymentStatus = PENDING ⇒ SELLER_PAYMENT;
+              CANCELLED orders and SELLER orders already marked PAID
+              are always ineligible (the existing "payment still due"
+              template would no longer be truthful — no third
+              "already paid" template was added).
+
+    src/infrastructure/email/order-confirmation.ts
+        buildOrderConfirmationEmailInput(dbHandle, order, items, method)
+            — the persisted-data → OrderConfirmationEmailInput mapping,
+              extracted from what were two independent copies of the
+              same logic in create-order.ts/online-payments.ts (both
+              now call this instead — no behavior change, proven by
+              the unchanged Gate 11B test suite). Reused a third time
+              here.
+        dispatchOrderConfirmationEmail(..., options?)
+            — gained an optional 4th parameter, defaulting to exactly
+              Gate 11B's prior behavior (`{trigger: "AUTOMATIC", actor:
+              {type:"SYSTEM"}}`) so neither existing call site changed.
+              `ADMIN_RESEND` uses actorType `ADMIN` +the authenticated
+              admin's id (the existing OrderEvent audit columns, not a
+              new field) and a FRESH `order-confirmation/resend/
+              <orderId>/<randomUUID>` idempotency key per call —
+              deliberately never the automatic per-order key (reusing
+              it risks Resend treating an intentional resend as a
+              retry of the original and returning its cached result
+              instead of actually sending).
+        resendOrderConfirmation(dbHandle, orderId, order, items, payments, adminUserId)
+            — orchestrates eligibility → build → dispatch. Takes
+              already-fetched order/items/payments (the caller — the
+              admin Server Action — fetches via the same
+              `getOrderDetail()` the page itself uses); never calls
+              `getOrderDetail` itself, which keeps this module free of
+              a value import of the database client (preserving its
+              plain-unit-test importability — see the file's own
+              comment on why `db` stays type-only here).
+
+    src/app/admin/(protected)/commandes/[id]/actions.ts
+        resendOrderConfirmationAction — requireAdmin() first line
+            (same boundary as every sibling action), re-reads order
+            state fresh, delegates entirely to the above. Only
+            `orderId` ever crosses the browser→server boundary — the
+            variant and recipient are always server-derived.
+
+**Manual-resend idempotency — honestly limited, by design (approved
+scope reduction from an earlier event-count-based proposal):** the
+fresh `randomUUID()` per call means the ONLY protection against
+accidental double-submission is the client's `disabled={isPending}`
+submit button (`resend-confirmation-button.tsx`) — a genuinely separate
+Server Action invocation (a second real click, a replayed request)
+generates its own key and sends its own email. This is accepted for a
+low-volume, authenticated, admin-only action; intentional resends must
+always work, which a stable/shared key would have undermined.
+
+No new database table, no migration, no queue.
 
 Wine and bundle images require external or managed storage.
 

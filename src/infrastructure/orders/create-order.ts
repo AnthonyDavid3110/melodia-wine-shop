@@ -9,7 +9,6 @@ import {
   orderItems,
   orders,
   payments,
-  sellers,
 } from "../database/schema";
 import { reserveOrderNumber } from "../database/order-number-counter";
 import { listActiveCampaignSellers } from "../campaign/campaign-sellers";
@@ -17,9 +16,10 @@ import { calculateOrderTotal } from "@/domain/orders/calculate-order-total";
 import { resolveOrderLines, type OrderLineRequest } from "@/domain/orders/resolve-order-lines";
 import { resolveOrderNumberYear } from "@/domain/orders/resolve-order-number-year";
 import type { CustomerInfoInput } from "@/domain/orders/order-input-schema";
-import { formatSellerName } from "@/domain/sellers/format-seller-name";
-import { dispatchOrderConfirmationEmail } from "@/infrastructure/email/order-confirmation";
-import type { OrderConfirmationEmailInput } from "@/domain/email/order-confirmation-content";
+import {
+  buildOrderConfirmationEmailInput,
+  dispatchOrderConfirmationEmail,
+} from "@/infrastructure/email/order-confirmation";
 
 export interface CreateOrderInput extends CustomerInfoInput {
   items: OrderLineRequest[];
@@ -69,47 +69,6 @@ async function fetchOrderWithItems(
     throw new Error(`fetchOrderWithItems: order ${orderId} not found immediately after insert.`);
   }
   return { order, items };
-}
-
-/**
- * Gate 11B — assembles the SELLER-variant confirmation email content
- * from the just-created (already-committed) order/items, resolving the
- * seller's display name where assigned (never fabricated when
- * unassigned — docs/03-USER-FLOWS.md §17).
- */
-async function buildSellerConfirmationEmailInput(
-  dbHandle: Pick<typeof db, "select">,
-  order: OrderRecord,
-  items: OrderItemRecord[],
-): Promise<OrderConfirmationEmailInput> {
-  let sellerName: string | null = null;
-  if (order.sellerId) {
-    const [seller] = await dbHandle.select().from(sellers).where(eq(sellers.id, order.sellerId));
-    if (seller) {
-      sellerName = formatSellerName(seller);
-    }
-  }
-
-  return {
-    order: {
-      orderNumber: order.orderNumber,
-      customerFirstName: order.customerFirstName,
-      customerLastName: order.customerLastName,
-      customerEmail: order.customerEmail,
-      customerAddress: order.customerAddress,
-      customerPostalCode: order.customerPostalCode,
-      customerCity: order.customerCity,
-      deliveryNote: order.deliveryNote,
-      totalAmount: order.totalAmount,
-    },
-    items: items.map((item) => ({
-      nameSnapshot: item.nameSnapshot,
-      quantity: item.quantity,
-      lineTotalAmount: item.lineTotalAmount,
-    })),
-    paymentMethod: "SELLER",
-    sellerName,
-  };
 }
 
 function isUniqueViolation(error: unknown, constraint: string): boolean {
@@ -351,10 +310,11 @@ export async function createOrder(
     dbHandle === db
   ) {
     try {
-      const emailInput = await buildSellerConfirmationEmailInput(
+      const emailInput = await buildOrderConfirmationEmailInput(
         dbHandle,
         result.order,
         result.items,
+        "SELLER",
       );
       await dispatchOrderConfirmationEmail(dbHandle, result.order.id, emailInput);
     } catch {

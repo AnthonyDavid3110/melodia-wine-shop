@@ -1,14 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../database/client";
-import {
-  orderEvents,
-  orderItems,
-  orders,
-  paymentEvents,
-  payments,
-  sellers,
-} from "../database/schema";
+import { orderEvents, orderItems, orders, paymentEvents, payments } from "../database/schema";
 import { OrderNotFoundError } from "../orders/orders";
 import {
   canConfirmOnlinePaymentSuccess,
@@ -24,8 +17,10 @@ import {
 } from "@/domain/payments/normalize-saferpay-outcome";
 import { type Money } from "@/domain/money";
 import { appUrl } from "@/lib/app-url";
-import { formatSellerName } from "@/domain/sellers/format-seller-name";
-import { dispatchOrderConfirmationEmail } from "@/infrastructure/email/order-confirmation";
+import {
+  buildOrderConfirmationEmailInput,
+  dispatchOrderConfirmationEmail,
+} from "@/infrastructure/email/order-confirmation";
 import type { OrderConfirmationEmailInput } from "@/domain/email/order-confirmation-content";
 import * as saferpayClient from "./saferpay-client";
 import * as fakeTestProvider from "./fake-test-provider";
@@ -508,35 +503,7 @@ async function buildOnlinePaymentConfirmationEmailInput(
     return null;
   }
   const items = await dbHandle.select().from(orderItems).where(eq(orderItems.orderId, orderId));
-
-  let sellerName: string | null = null;
-  if (order.sellerId) {
-    const [seller] = await dbHandle.select().from(sellers).where(eq(sellers.id, order.sellerId));
-    if (seller) {
-      sellerName = formatSellerName(seller);
-    }
-  }
-
-  return {
-    order: {
-      orderNumber: order.orderNumber,
-      customerFirstName: order.customerFirstName,
-      customerLastName: order.customerLastName,
-      customerEmail: order.customerEmail,
-      customerAddress: order.customerAddress,
-      customerPostalCode: order.customerPostalCode,
-      customerCity: order.customerCity,
-      deliveryNote: order.deliveryNote,
-      totalAmount: order.totalAmount,
-    },
-    items: items.map((item) => ({
-      nameSnapshot: item.nameSnapshot,
-      quantity: item.quantity,
-      lineTotalAmount: item.lineTotalAmount,
-    })),
-    paymentMethod: method,
-    sellerName,
-  };
+  return buildOrderConfirmationEmailInput(dbHandle, order, items, method);
 }
 
 type ApplySuccessTransactionResult =

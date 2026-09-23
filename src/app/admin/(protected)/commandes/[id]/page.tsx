@@ -22,11 +22,16 @@ import {
   canReassignSeller,
 } from "@/domain/orders/order-guards";
 import { canReconcileOnlinePayment } from "@/domain/payments/payment-guards";
+import {
+  confirmationEligibilityReasonLabel,
+  resolveOrderConfirmationEligibility,
+} from "@/domain/email/resolve-confirmation-eligibility";
 import { CustomerInfoForm } from "./customer-info-form";
 import { SellerAssignment } from "./seller-assignment";
 import { CancelOrderButton } from "./cancel-order-button";
 import { MarkPaymentReceivedButton } from "./mark-payment-received-button";
 import { VerifyWithSaferpayButton } from "./verify-with-saferpay-button";
+import { ResendConfirmationButton } from "./resend-confirmation-button";
 import { FulfilmentSection } from "./fulfilment-section";
 
 const EVENT_LABELS: Record<string, string> = {
@@ -41,10 +46,34 @@ const EVENT_LABELS: Record<string, string> = {
   ORDER_HANDED_TO_SELLER: "Commande remise au vendeur",
   ORDER_DELIVERED: "Commande livrée",
   PAYMENT_CONFIRMED_BY_PROVIDER: "Paiement confirmé par Saferpay",
-  EMAIL_SENT: "E-mail de confirmation envoyé",
-  EMAIL_FAILED: "Échec de l'envoi de l'e-mail de confirmation",
   PAYMENT_ANOMALY_DETECTED: "Anomalie de paiement détectée",
 };
+
+/**
+ * `EMAIL_SENT`/`EMAIL_FAILED` need their label to depend on
+ * `metadata.trigger` (Phase 11 Gate 11C), not just the event type — the
+ * only two event types the flat `EVENT_LABELS` map above can't handle
+ * alone. An event with no `trigger` at all (written before Gate 11C
+ * existed) is treated as legacy/automatic, never rewritten
+ * (docs/09-SECURITY.md §63).
+ */
+function emailEventLabel(event: { type: string; metadata: unknown }): string {
+  const trigger =
+    event.metadata && typeof event.metadata === "object" && "trigger" in event.metadata
+      ? (event.metadata as { trigger?: unknown }).trigger
+      : undefined;
+  const isManual = trigger === "ADMIN_RESEND";
+
+  if (event.type === "EMAIL_SENT") {
+    return isManual ? "Confirmation renvoyée manuellement" : "E-mail de confirmation envoyé";
+  }
+  if (event.type === "EMAIL_FAILED") {
+    return isManual
+      ? "Échec du renvoi manuel de la confirmation"
+      : "Échec de l'envoi de l'e-mail de confirmation";
+  }
+  return EVENT_LABELS[event.type] ?? event.type;
+}
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
@@ -58,6 +87,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
   const eligibleSellers = await listActiveCampaignSellers(order.campaignId);
   const sellerOptions = eligibleSellers.map((s) => ({ value: s.id, label: formatSellerName(s) }));
+
+  const confirmationEligibility = resolveOrderConfirmationEligibility(order, payments);
+  const confirmationVariantDescription =
+    confirmationEligibility.eligible && confirmationEligibility.paymentMethod === "SELLER"
+      ? "Cette confirmation indiquera que le règlement se fait auprès du vendeur lors de la livraison."
+      : "Cette confirmation indiquera que le paiement en ligne a bien été reçu.";
 
   return (
     <div className="flex flex-col gap-10">
@@ -208,6 +243,20 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           </div>
         ) : null}
 
+        <div>
+          {confirmationEligibility.eligible ? (
+            <ResendConfirmationButton
+              orderId={order.id}
+              customerEmail={order.customerEmail}
+              variantDescription={confirmationVariantDescription}
+            />
+          ) : (
+            <p className="text-muted-foreground text-body-sm font-sans">
+              {confirmationEligibilityReasonLabel(confirmationEligibility.reason)}
+            </p>
+          )}
+        </div>
+
         {payments.some((payment) => payment.provider === "SAFERPAY") ? (
           <div className="flex flex-col gap-2">
             <p className="text-body-sm font-medium">Tentatives de paiement en ligne</p>
@@ -287,7 +336,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <ul className="flex flex-col gap-2">
           {events.map((event) => (
             <li key={event.id} className="text-body-sm flex items-center justify-between font-sans">
-              <span>{EVENT_LABELS[event.type] ?? event.type}</span>
+              <span>{emailEventLabel(event)}</span>
               <span className="text-muted-foreground">
                 {event.createdAt.toLocaleDateString("fr-CH")}{" "}
                 {event.createdAt.toLocaleTimeString("fr-CH", {
