@@ -961,6 +961,40 @@ Therefore export actions should:
 - avoid unnecessary fields;
 - not be cached publicly.
 
+## Phase 12 Gate 12A implementation (adopted)
+
+Each of the four `/admin/exports/*.csv` Route Handlers independently
+calls `getAdminOrNull()` and returns a plain `401` when unauthenticated
+— the Proxy's cookie-presence check is optimistic UX only, never the
+boundary (verified directly: a genuinely cookie-less request is caught
+by the Proxy's redirect before the handler runs at all; a forged-but-
+present session cookie reaches the handler and is independently
+rejected there, `401`, mirroring `admin-auth.spec.ts`'s own "forged
+cookie" proof for pages). Every response sets
+`Cache-Control: private, no-store` and a human-readable, campaign/
+date-based filename — never a raw order/seller UUID (§30 above).
+
+Formula-injection neutralization (§46/§47) is centralized in one pure
+function (`src/domain/csv/csv-cell.ts`'s `neutralizeFormulaPrefix()`),
+applied only to untrusted free-text columns (customer name/address/
+phone/email/delivery note, product/bundle/seller display names) —
+never to money, dates, counts, or this codebase's own status labels. A
+leading `=`/`+`/`-`/`@`, including when preceded by space/tab/CR/LF,
+is neutralized by prefixing the ORIGINAL value with `'`; the value
+itself (e.g. a `+41…` Swiss phone number) is never stripped or
+rewritten, matching Excel/LibreOffice/Sheets' own "leading apostrophe
+means literal text" convention. Verified by a full test matrix
+(`csv-cell.test.ts`) covering every listed prefix character, each
+leading-whitespace variant, and a real Swiss phone number round-trip.
+
+No card data can appear in any export — `payments` never stores it to
+begin with (Rule 8, structurally). No CSV is ever written to disk,
+Blob storage, or a database — every export is generated fresh per
+authenticated request and returned directly (§48's "no permanently
+public document URL" principle, trivially satisfied since nothing is
+persisted at all). No generated CSV content, and no customer PII, is
+logged.
+
 ---
 
 # 50. HTTP security headers
@@ -1787,6 +1821,13 @@ Use managed platform security where appropriate.
   from internal retries but deliberately does not guarantee
   cross-request exactly-once delivery; that limitation is accepted
   rather than solved with new durable state. See §60 above.
+- DECIDED (Phase 12 Gate 12A): every CSV export Route Handler enforces
+  authorization itself via `getAdminOrNull()` (401 on failure), never
+  relying on the Proxy's optimistic cookie check or the `(protected)`
+  folder name — verified against both a cookie-less request and a
+  forged-but-present session cookie. Formula-injection neutralization
+  is centralized and applied only to untrusted free-text columns,
+  never to money/dates/labels. See §49 above.
 
 ---
 

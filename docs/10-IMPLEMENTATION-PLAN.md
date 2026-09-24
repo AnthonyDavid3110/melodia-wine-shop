@@ -1341,6 +1341,43 @@ Test with common spreadsheet software.
 ECM can prepare physical orders and export campaign data without manual
 database access.
 
+## Phase 12 Gate 12A — CSV export foundation (verified complete)
+
+Implements the CSV half of Phase 12: an authenticated `/admin/exports`
+page and four Route Handlers (`orders.csv`, `order-items.csv`,
+`seller-sales.csv`, `wine-requirements.csv`), generated on demand from
+authoritative persisted data — no PDF work, no migration, no new
+dependency. Full detail (schemas, dialect, formula-injection defense,
+payment-attempt selection rule, bundle representation, cancelled-order
+semantics per export) is documented in `05-ARCHITECTURE.md` §35 and
+`09-SECURITY.md` §49.
+
+New: `src/domain/csv/*` (pure builders + tests),
+`src/app/admin/(protected)/exports/*` (page + 4 Route Handlers),
+`src/components/admin/campaign-selector.tsx` (moved from
+`preparation/`, generalized with a `basePath` prop),
+`src/infrastructure/database/integration/exports.db.test.ts`,
+`e2e/exports.spec.ts`. Modified: `src/infrastructure/orders/orders.ts`
+(`listOrdersForCampaignExport`), `src/infrastructure/settlements/
+settlements.ts` (`listCampaignSellerSalesSummaries`),
+`src/app/admin/(protected)/preparation/page.tsx` (import path only).
+
+Verified: `pnpm test` (529/529 across 51 files, +8 new CSV test files),
+`pnpm test:db` (271/271 across 24 files, +1 new file), `pnpm test:e2e`
+(68/68, +5 new exports scenarios, all pre-existing specs — including
+Gate 11B/11C's own email/resend scenarios — unaffected), `pnpm build`,
+`pnpm lint`, `pnpm format:check` all clean (only the pre-existing
+Gate 11C `_prevState`/`_formData` warnings remain).
+
+**Deliberately not done in this gate**: PDF documents (invoice/
+receipt, preparation sheet, seller preparation summary — Gate 12B/
+12C), `ARCHIVED`-campaign export (deferred, scope reuses
+`/admin/preparation`'s exact ACTIVE/CLOSED campaign-selection pattern).
+
+**Phase 12 is NOT complete** — Gates 12B (preparation/seller-summary
+PDF) and 12C (invoice/receipt PDF, explicitly gated behind organisation/
+wording/numbering validation per §75) remain.
+
 ---
 
 # 78. Phase 13 — Statistics and dashboard
@@ -1952,7 +1989,8 @@ Application implementation:
     Phase 9   Preparation and fulfilment           COMPLETE
     Phase 10  Online payments                      COMPLETE
     Phase 11  Transactional email                   COMPLETE
-    Phase 12+ Not started
+    Phase 12  Documents and exports                  Gate 12A COMPLETE (Gate 12B/12C pending)
+    Phase 13+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master

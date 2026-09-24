@@ -15,7 +15,7 @@ import {
   listCampaignFulfilmentOrders,
   type WineRequirementRow,
 } from "@/infrastructure/fulfilment/fulfilment";
-import { CampaignSelector } from "./campaign-selector";
+import { CampaignSelector } from "@/components/admin/campaign-selector";
 import { BulkFulfilmentForm, type BulkOrderOption } from "./bulk-fulfilment-form";
 import { bulkDeliverAction, bulkHandToSellerAction, bulkPrepareAction } from "./actions";
 

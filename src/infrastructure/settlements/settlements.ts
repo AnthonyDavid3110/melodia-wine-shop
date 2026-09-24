@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../database/client";
 import {
   campaignSellers,
@@ -13,6 +13,7 @@ import {
 import { CampaignNotFoundError } from "../campaign/campaigns";
 import { SellerNotFoundError } from "../sellers/sellers";
 import { type Money, money, sumMoney } from "@/domain/money";
+import { formatSellerName } from "@/domain/sellers/format-seller-name";
 import { calculateSellerCollections } from "@/domain/sellers/calculate-seller-collections";
 import { calculateSellerProgress } from "@/domain/sellers/calculate-seller-progress";
 import { calculateSellerSales } from "@/domain/sellers/calculate-seller-sales";
@@ -191,6 +192,157 @@ export async function getSellerFinancialSummary(
     stillToRemit: collections.stillToRemit,
     remittedToEcm,
   };
+}
+
+export interface CampaignSellerSalesSummaryRow {
+  sellerId: string | null;
+  /** Formatted display name (`formatSellerName()`); `null` for the unassigned pseudo-row. */
+  sellerName: string | null;
+  orderCount: number;
+  sales: Money;
+  /** `null` for the unassigned pseudo-row — no target concept applies to it. */
+  target: Money | null;
+  /** `null` for the unassigned pseudo-row. */
+  progressPercentage: number | null;
+  stillToCollect: Money;
+  collected: Money;
+  stillToRemit: Money;
+  remittedToEcm: Money;
+}
+
+/**
+ * Batched sibling of `getSellerFinancialSummary()` for Phase 12 Gate
+ * 12A's `seller-sales.csv` — computes the identical figures for EVERY
+ * seller who ever participated in the campaign in a small constant
+ * number of queries (never one round-trip per seller), reusing the
+ * exact same pure calculators `getSellerFinancialSummary()` already
+ * uses. No business math is reimplemented here, only the data-fetching
+ * is batched.
+ *
+ * Deliberately sources sellers from `campaignSellers` directly, NOT
+ * `listActiveCampaignSellers()` — a seller later deactivated must not
+ * make their historical campaign sales disappear from this export
+ * (approved Step 1 §8).
+ *
+ * Also produces one synthetic row (`sellerId: null`) aggregating
+ * orders with no seller assigned at all, whenever at least one exists
+ * for this campaign (approved Step 1 §7) — unassigned orders remain
+ * visible rather than silently dropped (BR-PRE-003's principle applied
+ * to this export).
+ */
+export async function listCampaignSellerSalesSummaries(
+  campaignId: string,
+  dbHandle: DbHandle = db,
+): Promise<CampaignSellerSalesSummaryRow[]> {
+  const [campaign] = await dbHandle.select().from(campaigns).where(eq(campaigns.id, campaignId));
+  if (!campaign) {
+    throw new CampaignNotFoundError(campaignId);
+  }
+
+  const participants = await dbHandle
+    .select({
+      sellerId: campaignSellers.sellerId,
+      targetAmount: campaignSellers.targetAmount,
+      firstName: sellers.firstName,
+      lastName: sellers.lastName,
+    })
+    .from(campaignSellers)
+    .innerJoin(sellers, eq(campaignSellers.sellerId, sellers.id))
+    .where(eq(campaignSellers.campaignId, campaignId))
+    .orderBy(asc(sellers.lastName), asc(sellers.firstName));
+
+  const orderRows = await dbHandle
+    .select({ order: orders, payment: payments, settlementLink: sellerSettlementOrders })
+    .from(orders)
+    .leftJoin(payments, and(eq(payments.orderId, orders.id), eq(payments.method, "SELLER")))
+    .leftJoin(sellerSettlementOrders, eq(sellerSettlementOrders.orderId, orders.id))
+    .where(eq(orders.campaignId, campaignId));
+
+  type OrderRow = (typeof orderRows)[number];
+  const UNASSIGNED_KEY = "UNASSIGNED";
+  const ordersByGroupKey = new Map<string, OrderRow[]>();
+  for (const row of orderRows) {
+    const key = row.order.sellerId ?? UNASSIGNED_KEY;
+    const list = ordersByGroupKey.get(key) ?? [];
+    list.push(row);
+    ordersByGroupKey.set(key, list);
+  }
+
+  const settledSettlements = await dbHandle
+    .select({ sellerId: sellerSettlements.sellerId, amount: sellerSettlements.amount })
+    .from(sellerSettlements)
+    .where(
+      and(eq(sellerSettlements.campaignId, campaignId), eq(sellerSettlements.status, "SETTLED")),
+    );
+  const settledAmountsBySellerId = new Map<string, Money[]>();
+  for (const row of settledSettlements) {
+    const list = settledAmountsBySellerId.get(row.sellerId) ?? [];
+    list.push(row.amount as Money);
+    settledAmountsBySellerId.set(row.sellerId, list);
+  }
+
+  function summarizeGroup(groupRows: OrderRow[]) {
+    const sales = calculateSellerSales(
+      groupRows.map((row) => ({
+        status: row.order.status,
+        totalAmount: row.order.totalAmount as Money,
+      })),
+    );
+    const orderCount = groupRows.filter((row) => row.order.status !== "CANCELLED").length;
+    const sellerPaymentRows = groupRows.filter(
+      (row) => row.payment && row.order.status !== "CANCELLED",
+    );
+    const collections = calculateSellerCollections(
+      sellerPaymentRows.map((row) => ({
+        totalAmount: row.order.totalAmount as Money,
+        customerPaymentStatus: row.order.customerPaymentStatus,
+        settled: row.order.sellerSettlementStatus === "SETTLED" || row.settlementLink !== null,
+      })),
+    );
+    return { sales, orderCount, ...collections };
+  }
+
+  const summaries: CampaignSellerSalesSummaryRow[] = participants.map((participant) => {
+    const groupRows = ordersByGroupKey.get(participant.sellerId) ?? [];
+    const { sales, orderCount, stillToCollect, collected, stillToRemit } =
+      summarizeGroup(groupRows);
+    const target = money(participant.targetAmount ?? campaign.defaultSellerTargetAmount ?? 0);
+    const progress = calculateSellerProgress(sales, target);
+    const remittedToEcm = sumMoney(settledAmountsBySellerId.get(participant.sellerId) ?? []);
+
+    return {
+      sellerId: participant.sellerId,
+      sellerName: formatSellerName(participant),
+      orderCount,
+      sales,
+      target,
+      progressPercentage: progress.percentage,
+      stillToCollect,
+      collected,
+      stillToRemit,
+      remittedToEcm,
+    };
+  });
+
+  const unassignedRows = ordersByGroupKey.get(UNASSIGNED_KEY) ?? [];
+  if (unassignedRows.length > 0) {
+    const { sales, orderCount, stillToCollect, collected, stillToRemit } =
+      summarizeGroup(unassignedRows);
+    summaries.push({
+      sellerId: null,
+      sellerName: null,
+      orderCount,
+      sales,
+      target: null,
+      progressPercentage: null,
+      stillToCollect,
+      collected,
+      stillToRemit,
+      remittedToEcm: money(0),
+    });
+  }
+
+  return summaries;
 }
 
 /** Settlement history for seller detail (Phase 8 §22) — immutable, no edit/reversal surface. */

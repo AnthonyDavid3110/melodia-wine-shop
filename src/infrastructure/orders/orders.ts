@@ -82,6 +82,75 @@ export async function listOrders(dbHandle: DbHandle = db) {
   return rows;
 }
 
+/**
+ * Phase 12 Gate 12A — the full per-campaign order/item/payment read
+ * model behind `orders.csv`/`order-items.csv`. Deliberately includes
+ * `CANCELLED` orders (approved Step 1 §6, unlike
+ * `listCampaignFulfilmentOrders()`) — these exports are audit/
+ * reconciliation history, not an operational-preparation view. Four
+ * queries total regardless of order count (batched via `inArray`,
+ * mirroring `fulfilment.ts`'s `loadOrderItemsWithBundleComponents()`
+ * idiom) — never one query per order.
+ */
+export async function listOrdersForCampaignExport(campaignId: string, dbHandle: DbHandle = db) {
+  const rows = await dbHandle
+    .select({ order: orders, seller: sellers })
+    .from(orders)
+    .leftJoin(sellers, eq(orders.sellerId, sellers.id))
+    .where(eq(orders.campaignId, campaignId))
+    .orderBy(desc(orders.createdAt));
+
+  const orderIds = rows.map((row) => row.order.id);
+  const paymentsByOrderId = new Map<string, (typeof payments.$inferSelect)[]>();
+  const itemsByOrderId = new Map<string, (typeof orderItems.$inferSelect)[]>();
+  const componentsByItemId = new Map<string, (typeof orderBundleComponents.$inferSelect)[]>();
+
+  if (orderIds.length > 0) {
+    const orderPayments = await dbHandle
+      .select()
+      .from(payments)
+      .where(inArray(payments.orderId, orderIds));
+    for (const payment of orderPayments) {
+      const list = paymentsByOrderId.get(payment.orderId) ?? [];
+      list.push(payment);
+      paymentsByOrderId.set(payment.orderId, list);
+    }
+
+    const items = await dbHandle
+      .select()
+      .from(orderItems)
+      .where(inArray(orderItems.orderId, orderIds));
+    for (const item of items) {
+      const list = itemsByOrderId.get(item.orderId) ?? [];
+      list.push(item);
+      itemsByOrderId.set(item.orderId, list);
+    }
+
+    const itemIds = items.map((item) => item.id);
+    if (itemIds.length > 0) {
+      const components = await dbHandle
+        .select()
+        .from(orderBundleComponents)
+        .where(inArray(orderBundleComponents.orderItemId, itemIds));
+      for (const component of components) {
+        const list = componentsByItemId.get(component.orderItemId) ?? [];
+        list.push(component);
+        componentsByItemId.set(component.orderItemId, list);
+      }
+    }
+  }
+
+  return rows.map((row) => ({
+    order: row.order,
+    seller: row.seller,
+    payments: paymentsByOrderId.get(row.order.id) ?? [],
+    items: (itemsByOrderId.get(row.order.id) ?? []).map((item) => ({
+      ...item,
+      bundleComponents: componentsByItemId.get(item.id) ?? [],
+    })),
+  }));
+}
+
 export async function getOrderDetail(id: string, dbHandle: DbHandle = db) {
   const [row] = await dbHandle
     .select({ order: orders, seller: sellers })

@@ -1251,6 +1251,76 @@ UTF-8 should be used.
 
 Compatibility with common spreadsheet software should be considered.
 
+## Phase 12 Gate 12A implementation (adopted)
+
+All four exports are implemented as authenticated Route Handlers under
+`/admin/exports/*.csv`, each independently calling `getAdminOrNull()`
+(`src/lib/auth/dal.ts`) and returning a plain 401 on failure — not
+`requireAdmin()`'s page-oriented `redirect()`, per that file's own
+"Route Handlers need 401/403 semantics" guidance. The `(protected)`
+folder/Proxy give optimistic UX only; the Route Handler's own check is
+the actual boundary (verified in `e2e/exports.spec.ts` with both a
+genuinely cookie-less request, caught by Proxy's redirect, and a
+forged-but-present session cookie, caught only by the handler's own
+`getAdminOrNull()`).
+
+A small pure CSV domain layer (`src/domain/csv/`) — `csv-cell.ts`
+(quoting + centralized formula-injection neutralization),
+`format-csv-money.ts`/`format-csv-date.ts` (locale-independent
+decimal/ISO formatting, dates resolved to Europe/Zurich),
+`select-authoritative-payment-for-export.ts` (the one-row-per-order
+payment-selection rule below), `generate-export-filename.ts`, and one
+`build-*-csv.ts` per export — takes only already-fetched plain data, no
+DB access, fully unit-tested. Dialect: `;` delimiter (Swiss/French
+Excel default list separator), UTF-8 BOM, CRLF row endings, money as
+plain two-decimal text (`18.00`, never locale-formatted), dates as
+`YYYY-MM-DD`, datetimes as `YYYY-MM-DD HH:mm` (Europe/Zurich, 24h).
+
+Formula-injection defense (`neutralizeFormulaPrefix()`) is centralized
+and applied only to untrusted free-text columns (customer name/
+address/phone/email/delivery note, product/bundle/seller display
+names) — never to money, dates, counts, or codebase-produced labels. A
+leading `=`/`+`/`-`/`@`, optionally preceded by space/tab/CR/LF, is
+neutralized by prefixing the original value with `'` — the value's own
+characters (e.g. a `+41…` phone number) are never stripped or altered.
+
+`orders.csv` is one row per order (never one row per payment attempt).
+`selectAuthoritativePaymentForExport()` picks the `SUCCEEDED` payment
+if one exists (a second one is structurally prevented elsewhere in the
+codebase — see `docs/08-PAYMENTS.md` anomaly handling), otherwise the
+most recent attempt by `createdAt`; an equal-timestamp tie-break by
+`id` is a purely technical determinism guard, not a chronology claim.
+`orders.customerPaymentStatus`/`sellerSettlementStatus` always come
+from the Order row itself, never from the selected payment.
+
+New batched infrastructure (no N+1): `listOrdersForCampaignExport()`
+(`src/infrastructure/orders/orders.ts`) — includes `CANCELLED` orders,
+unlike the fulfilment-scoped query — and
+`listCampaignSellerSalesSummaries()`
+(`src/infrastructure/settlements/settlements.ts`), which reuses the
+existing `calculateSellerSales`/`calculateSellerCollections`/
+`calculateSellerProgress` calculators (never reimplements them),
+sources sellers from `campaignSellers` directly rather than the
+active-only picker (a deactivated seller's historical sales stay
+visible), and adds one synthetic "Non attribuée" row for unassigned
+orders when any exist.
+
+`order-items.csv` keeps one row per commercial `orderItems` row; a
+BUNDLE row's own snapshotted price/quantity/total is never split
+across its components (no fabricated component prices) — components
+are shown only as an informational `composition` text column.
+
+Campaign selection reuses `listFulfilmentRelevantCampaigns()`/
+`resolveDefaultFulfilmentCampaign()` verbatim (ACTIVE ∪ CLOSED — same
+scope as `/admin/preparation`; `ARCHIVED` campaigns are not exportable
+in this gate). `CampaignSelector`
+(`src/components/admin/campaign-selector.tsx`, moved from
+`preparation/` and given a `basePath` prop, default unchanged) is
+shared by both pages rather than duplicated.
+
+No PDF work is part of this gate (`TBD-ARCH-007` remains open, deferred
+to Gate 12B).
+
 ---
 
 # 36. Domain layer
