@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/auth/dal";
 import { PageHeader } from "@/components/admin/page-header";
 import { CampaignSelector } from "@/components/admin/campaign-selector";
-import { resolveExportCampaign } from "./resolve-export-campaign";
+import { resolveRequestedCampaign } from "@/infrastructure/campaign/resolve-requested-campaign";
 
 interface ExportLink {
   href: string;
@@ -43,7 +43,7 @@ export default async function ExportsPage({
   await requireAdmin();
   const { campaign: campaignParam } = await searchParams;
 
-  const { campaign, relevantCampaigns } = await resolveExportCampaign(campaignParam ?? null);
+  const { campaign, relevantCampaigns } = await resolveRequestedCampaign(campaignParam ?? null);
 
   if (!campaign) {
     return (

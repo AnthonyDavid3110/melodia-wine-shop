@@ -236,6 +236,15 @@ export default async function PreparationPage({
                 </p>
               </div>
 
+              <div>
+                <a
+                  href={`/admin/preparation/documents/seller/${group.sellerId}?campaign=${campaign.id}`}
+                  className="border-border hover:bg-surface-muted text-body-sm inline-block rounded-sm border px-3 py-1.5 font-sans font-medium transition-colors"
+                >
+                  Bon de préparation (PDF)
+                </a>
+              </div>
+
               {readyForHandoff.length > 0 ? (
                 <div className="flex flex-col gap-2">
                   <p className="text-body-sm font-medium">Prêtes à remettre</p>

@@ -3,7 +3,7 @@ import { formatSellerName } from "@/domain/sellers/format-seller-name";
 import { buildOrdersCsv } from "@/domain/csv/build-orders-csv";
 import { generateExportFilename } from "@/domain/csv/generate-export-filename";
 import { listOrdersForCampaignExport } from "@/infrastructure/orders/orders";
-import { resolveExportCampaign } from "../resolve-export-campaign";
+import { resolveRequestedCampaign } from "@/infrastructure/campaign/resolve-requested-campaign";
 
 /**
  * `orders.csv` (Phase 12 Gate 12A) — authenticated, on-demand
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const { campaign } = await resolveExportCampaign(searchParams.get("campaign"));
+  const { campaign } = await resolveRequestedCampaign(searchParams.get("campaign"));
   if (!campaign) {
     return new Response("Aucune campagne disponible pour cet export.", { status: 404 });
   }

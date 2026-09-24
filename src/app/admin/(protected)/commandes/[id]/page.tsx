@@ -331,6 +331,24 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         />
       </section>
 
+      <section className="flex flex-col gap-4">
+        <h2 className="font-display text-h3">Documents</h2>
+        {order.status === "CANCELLED" ? (
+          <p className="text-muted-foreground text-body-sm font-sans">
+            Commande annulée — aucun bon de préparation ne peut être généré.
+          </p>
+        ) : (
+          <div>
+            <a
+              href={`/admin/commandes/${order.id}/documents/preparation.pdf`}
+              className="border-border hover:bg-surface-muted text-body-sm inline-block rounded-sm border px-4 py-2 font-sans font-medium transition-colors"
+            >
+              Bon de préparation (PDF)
+            </a>
+          </div>
+        )}
+      </section>
+
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-h3">Historique</h2>
         <ul className="flex flex-col gap-2">

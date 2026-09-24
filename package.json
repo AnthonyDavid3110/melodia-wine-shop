@@ -28,6 +28,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
     "@neondatabase/serverless": "^1.1.0",
+    "@react-pdf/renderer": "^4.9.0",
     "better-auth": "^1.7.5",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",

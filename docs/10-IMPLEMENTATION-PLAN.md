@@ -1374,9 +1374,54 @@ receipt, preparation sheet, seller preparation summary — Gate 12B/
 12C), `ARCHIVED`-campaign export (deferred, scope reuses
 `/admin/preparation`'s exact ACTIVE/CLOSED campaign-selection pattern).
 
-**Phase 12 is NOT complete** — Gates 12B (preparation/seller-summary
-PDF) and 12C (invoice/receipt PDF, explicitly gated behind organisation/
-wording/numbering validation per §75) remain.
+## Phase 12 Gate 12B — Preparation PDFs (verified complete)
+
+Implements the two preparation-oriented PDFs: individual order
+(`/admin/commandes/[id]/documents/preparation.pdf`) and per-seller
+(`/admin/preparation/documents/seller/[sellerId]`), both authenticated,
+generated on demand, never persisted. Resolves `TBD-ARCH-007` — see
+`05-ARCHITECTURE.md` §34 for the adopted `@react-pdf/renderer`
+architecture and the compatibility evidence gathered before adoption
+(React 19, Next.js 16 Turbopack dev + build, no `serverExternalPackages`
+needed).
+
+Content, eligibility, and snapshot/live mapping match the approved
+Step 1 plan exactly: both documents reuse the identical
+`PreparationSheetContent` per-order model (never two representations
+of an order); eligibility reuses `listOrdersForCampaignExport()`
+filtered to non-`CANCELLED` orders (the same scope `/admin/
+preparation`'s fulfilment view already uses, `NEW` orders included
+deliberately); seller-level totals reuse `listCampaignSellerSalesSummaries()`
+verbatim (Gate 12A), never recalculated. Seller display name remains a
+live reference (same accepted V1 limitation as Gate 12A/Gate 11C, no
+migration).
+
+A real, visually-inspected pagination bug was found and fixed during
+implementation: an initial partial-`wrap={false}` strategy left the
+`fixed` page footer overlapping flowing content at page breaks (the
+footer doesn't reserve space in react-pdf's own content-flow height
+calculation). Fixed by reserving extra `paddingBottom` and by making
+each order's entire section unbreakable (`wrap={false}` on the whole
+section) rather than just its identity block — verified by regenerating
+and visually inspecting representative PDFs (ordinary order, a
+Discovery Box/bundle order, a 6-order seller document, an 18-order/
+10-page seller document including one 8-line-item order) until clean.
+
+Verified: `pnpm test` (557/557 across 55 files, +11 new document test
+files), `pnpm test:db` (271/271 across 24 files, unchanged — no new
+query semantics needed, existing Gate 12A infrastructure reused
+verbatim), `pnpm test:e2e` (73/73, +5 new preparation-document
+scenarios, all pre-existing specs unaffected), `pnpm build`, `pnpm
+lint`, `pnpm format:check` all clean (only the pre-existing Gate 11C
+warnings remain).
+
+**Deliberately not done in this gate**: invoice/receipt PDF (Gate
+12C), any font embedding (built-in Helvetica only), combined
+"all campaign orders" PDF.
+
+**Phase 12 is NOT complete** — Gate 12C (invoice/receipt PDF,
+explicitly gated behind organisation/wording/numbering validation per
+§75) remains.
 
 ---
 
@@ -1989,7 +2034,7 @@ Application implementation:
     Phase 9   Preparation and fulfilment           COMPLETE
     Phase 10  Online payments                      COMPLETE
     Phase 11  Transactional email                   COMPLETE
-    Phase 12  Documents and exports                  Gate 12A COMPLETE (Gate 12B/12C pending)
+    Phase 12  Documents and exports                  Gate 12A/12B COMPLETE (Gate 12C pending)
     Phase 13+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

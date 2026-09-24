@@ -1224,6 +1224,75 @@ Selection criteria:
 - maintainability;
 - ability to share the visual identity with the web application.
 
+## Phase 12 Gate 12B implementation (adopted) — `TBD-ARCH-007` RESOLVED
+
+**Resolution: `@react-pdf/renderer` (v4.9.0).** Verified directly in
+this repository before adopting it (not from memory): React 19
+support confirmed (peer range includes `^19.0.0`), a real
+`renderToBuffer()` call succeeds standalone and inside a Next.js 16
+Route Handler under both `pnpm dev` (Turbopack) and a real
+`pnpm build` + `pnpm start` production run, with **no
+`serverExternalPackages` entry needed** in `next.config.ts` — the
+documented Turbopack module-resolution issue some versions of this
+library hit did not reproduce here. One real, unrelated TypeScript
+friction point found and fixed: `renderToBuffer()`'s `Buffer` return
+value must be wrapped as `new Uint8Array(buffer)` before passing it to
+a Route Handler `Response` — `Buffer` alone doesn't satisfy the DOM
+`BodyInit` type this project's `@types/node`/lib configuration expects.
+
+Gate 12B covers only the preparation documents (individual order +
+seller). Invoice/receipt remains Gate 12C — deliberately not decided
+here; nothing in this gate's content model, wording, or numbering
+choices constrains that future decision.
+
+**Architecture** — the exact split proposed in Step 1, implemented
+unchanged:
+
+- `src/domain/documents/` — pure content builders
+  (`buildPreparationSheetContent()`, `buildSellerPreparationSummaryContent()`,
+  `slugifyName()`), no DB/React/PDF-library/HTTP/auth/env import,
+  independently unit-tested without touching a renderer. The seller
+  document reuses the individual document's exact content type
+  (`PreparationSheetContent[]`) — never a second representation of an
+  order.
+- `src/infrastructure/documents/` — `pdf-renderer.tsx` is the *only*
+  module outside `preparation-sheet-document.tsx` that imports
+  `@react-pdf/renderer`, so a future library swap touches two files,
+  never the domain layer or the Route Handlers. `pdf-styles.ts` holds
+  shared print styling constants (not a generic document framework —
+  just the values both documents share).
+- Route Handlers (`.../commandes/[id]/documents/preparation.pdf`,
+  `.../preparation/documents/seller/[sellerId]`) each declare
+  `export const runtime = "nodejs"` and call `getAdminOrNull()`
+  themselves — the same established Gate 12A pattern, not a new one.
+
+**Eligibility** reuses `listOrdersForCampaignExport()` (Gate 12A,
+already batched) filtered to non-`CANCELLED` orders — the same scope
+`/admin/preparation`'s own fulfilment view already uses; no second
+eligibility model. `NEW` orders are included deliberately (a read-only
+document carries no risk of acting on an unconfirmed order).
+
+**Pagination**, verified by real generated-PDF visual inspection, not
+assumption: each order's full section (`wrap={false}`) is kept
+unbreakable — an order too large for the remaining space on a page
+moves whole to a fresh page, rather than splitting. An earlier
+attempt at partial-section `wrap={false}` (only the identity block)
+produced real, visually-confirmed content/footer overlap at page
+boundaries, caused by the `fixed` footer not reserving its own space
+in react-pdf's content-flow height calculation; fixed by giving the
+page extra `paddingBottom` and by simplifying to whole-section
+atomicity, per the explicit "readable pagination over clever
+pagination" direction. Page-level furniture (brand header, footer with
+computed page numbers) uses `fixed` — the library's own standard, safe
+idiom for repeating elements — never per-order identity.
+
+**Fonts:** built-in Helvetica/Helvetica-Bold/Helvetica-Oblique only.
+Fraunces/IBM Plex Sans exist in this project only via `next/font/
+google` (self-hosted at build time, no `.ttf`/`.otf` files in the
+repo) — embedding them in a PDF would require separately sourcing font
+files, explicitly deferred. Identity is expressed through hierarchy,
+spacing, and a restrained `oxblood` accent instead.
+
 ---
 
 # 35. CSV exports
@@ -1983,9 +2052,11 @@ not an architecture TBD.
 
 Select provider.
 
-## TBD-ARCH-007 — PDF library
+## TBD-ARCH-007 — PDF library — RESOLVED (Phase 12 Gate 12B)
 
-Select server-compatible PDF generation approach.
+**Resolution:** `@react-pdf/renderer`. See §34 above for the verified
+compatibility evidence (React 19, Next.js 16 Turbopack dev + build, no
+`serverExternalPackages` needed) and the adopted architecture.
 
 ## TBD-ARCH-008 — Monitoring
 

@@ -947,6 +947,42 @@ authorized administrative operations or appropriate customer flows.
 Temporary document URLs must not become permanently public searchable
 resources.
 
+## Phase 12 Gate 12B implementation (adopted)
+
+Both PDF Route Handlers (individual order, seller) independently call
+`getAdminOrNull()` and return a plain `401` — the same established
+Gate 12A boundary, not a new one; verified against both a cookie-less
+request (caught earlier by the Proxy's redirect) and a forged-but-
+present session cookie (reaching the handler, rejected there). Every
+response sets `Cache-Control: private, no-store`; no generated PDF is
+ever written to disk, Blob storage, or a database — each is rendered
+fresh per authenticated request from data re-fetched server-side at
+request time, never from a client-supplied value beyond the
+`orderId`/`sellerId` identifier in the URL itself. Both identifiers are
+re-validated against real persisted rows (`getOrderDetail()`,
+`getSeller()`) and, for the seller route, against that seller's actual
+eligible orders in the requested campaign — never trusted merely
+because the browser supplied them; a seller with zero eligible orders
+in scope returns a safe 404, never an empty document.
+
+Customer-controlled strings (name, delivery note) are passed straight
+into `@react-pdf/renderer`'s `<Text>` primitive, which never parses its
+children as HTML/markup — there is no HTML-intermediate step in this
+rendering path at all (unlike the Gate 11A email path, which needed its
+own `escapeHtml()`), so there is structurally no markup-injection
+surface to neutralize. Verified with a fixture containing
+`<script>alert("x")</script>`-shaped text, confirmed to render and
+generate a valid PDF without being interpreted as markup.
+
+No raw order/seller UUID appears in either document's content or its
+filename (`preparation-{orderNumber}.pdf`,
+`preparation-{slugified seller name}.pdf` — `slugifyName()` strips
+diacritics/unsafe characters, never used as a uniqueness guarantee
+since the seller is always identified server-side by id, not by the
+filename). No card/payment credential data can appear (same structural
+guarantee as Gate 12A — `payments` never stores it). No generated PDF
+content, and no customer PII, is logged.
+
 ---
 
 # 49. Admin exports
@@ -1828,6 +1864,12 @@ Use managed platform security where appropriate.
   forged-but-present session cookie. Formula-injection neutralization
   is centralized and applied only to untrusted free-text columns,
   never to money/dates/labels. See §49 above.
+- DECIDED (Phase 12 Gate 12B): `TBD-ARCH-007` resolved to
+  `@react-pdf/renderer`, verified compatible with this project's exact
+  React 19/Next.js 16/Turbopack setup before adoption. Both PDF Route
+  Handlers reuse the Gate 12A `getAdminOrNull()` boundary unchanged;
+  customer text renders via `<Text>` with no HTML-intermediate step, so
+  no markup-injection surface exists to neutralize. See §48 above.
 
 ---
 
