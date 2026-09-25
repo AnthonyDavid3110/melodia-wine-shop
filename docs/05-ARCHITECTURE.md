@@ -1293,6 +1293,72 @@ repo) — embedding them in a PDF would require separately sourcing font
 files, explicitly deferred. Identity is expressed through hierarchy,
 spacing, and a restrained `oxblood` accent instead.
 
+## Phase 12 Gate 12C implementation (adopted) — customer-facing commercial documents
+
+Two documents, not one — **`ORDER_CONFIRMATION`** ("Confirmation de
+commande") and **`RECEIPT`** ("Reçu") — sharing one content model
+(`OrderDocumentContent`, `src/domain/documents/
+build-order-document-content.ts`) and one React-PDF component
+(`src/infrastructure/documents/order-document.tsx`), rendered via one
+new `renderOrderDocumentPdf()` in the existing `pdf-renderer.tsx`.
+Deliberately **not** called "Facture"/"invoice" anywhere — ECM's real,
+validated decision (not a technical default) is that this V1 sale
+model (immediate online payment, or payment directly to an ECM member)
+has no traditional bank-transfer invoice workflow, no QR-bill, no IBAN,
+no payment deadline, and ECM is not VAT-registered, so no VAT
+field/calculation exists anywhere in this model. `TBD-ARCH-007` was
+already resolved in Gate 12B (`@react-pdf/renderer`); this gate adds no
+new library, no new dependency, no migration.
+
+**The compile-time safety property.** `buildReceiptContent()`'s order
+parameter type requires `customerPaymentStatus: "PAID"` as a literal —
+TypeScript refuses to compile a call site that hasn't already narrowed
+to exactly that value. `canGenerateReceipt()` is written as a
+TypeScript type predicate (`order is T & {customerPaymentStatus:
+"PAID"}`), so `if (canGenerateReceipt(order)) { buildReceiptContent(order, ...) }`
+narrows automatically — no redundant manual check needed, and no code
+path can produce a RECEIPT document claiming payment was received for
+an order that isn't `"PAID"`. This is a compiler-enforced guarantee,
+not merely a runtime one; `canGenerateOrderConfirmation()`/
+`canGenerateReceipt()` both additionally exclude `CANCELLED` orders
+explicitly (not inferred from the payment-status check alone, even
+though `canCancelOrder()` already makes a `PAID`+`CANCELLED`
+combination unreachable in practice).
+
+**Content**, per ECM's own explicit decisions: organisation identity
+(`src/domain/documents/organisation-identity.ts` — ECM's real name and
+address, public information, hardcoded, never an environment
+variable), `Référence de commande : ECM-YYYY-NNNN` (the existing human
+order number, explicitly never labelled or treated as a legally
+authoritative invoice number), order date, customer name and delivery/
+postal address (never the customer note, email, or phone), commercial
+lines from the immutable `orderItems`/`orderBundleComponents`
+snapshots with unit price and line total (bundle components remain
+informational sub-lines only — same no-fabricated-price principle
+already established in Gate 12A's `order-items.csv` and Gate 12B's
+preparation sheet), order total, and a customer-facing payment-method
+phrase (TWINT / Carte / "Paiement au membre ECM" — deliberately
+distinct wording from the admin-facing `paymentMethodLabel()`'s
+"Membre", mapped locally in the builder rather than duplicating the
+underlying method-selection logic, which still comes from
+`selectAuthoritativePaymentForExport()`). Seller name and seller
+settlement status are never shown — both remain operational/internal
+information. RECEIPT adds exactly one further line, exact approved
+wording: `Paiement : Payé`.
+
+**Eligibility**, both enforced in the Route Handler and mirrored in the
+order-detail UI (never two divergent implementations):
+
+    ORDER_CONFIRMATION — any order with status !== CANCELLED
+    RECEIPT            — status !== CANCELLED AND customerPaymentStatus === "PAID"
+
+A `CANCELLED` order can generate neither document (409 at the route,
+both actions hidden in the UI, with the single approved message
+"Commande annulée — aucun document commercial ne peut être généré.").
+A non-`CANCELLED`, non-`PAID` order can generate only the confirmation;
+the Reçu action is hidden with the approved explanatory line ("Le reçu
+sera disponible une fois le paiement reçu.").
+
 ---
 
 # 35. CSV exports

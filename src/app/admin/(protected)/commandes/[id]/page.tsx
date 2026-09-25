@@ -26,6 +26,10 @@ import {
   confirmationEligibilityReasonLabel,
   resolveOrderConfirmationEligibility,
 } from "@/domain/email/resolve-confirmation-eligibility";
+import {
+  canGenerateOrderConfirmation,
+  canGenerateReceipt,
+} from "@/domain/documents/build-order-document-content";
 import { CustomerInfoForm } from "./customer-info-form";
 import { SellerAssignment } from "./seller-assignment";
 import { CancelOrderButton } from "./cancel-order-button";
@@ -345,6 +349,33 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             >
               Bon de préparation (PDF)
             </a>
+          </div>
+        )}
+
+        {!canGenerateOrderConfirmation(order) ? (
+          <p className="text-muted-foreground text-body-sm font-sans">
+            Commande annulée — aucun document commercial ne peut être généré.
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              href={`/admin/commandes/${order.id}/documents/confirmation.pdf`}
+              className="border-border hover:bg-surface-muted text-body-sm inline-block rounded-sm border px-4 py-2 font-sans font-medium transition-colors"
+            >
+              Confirmation de commande (PDF)
+            </a>
+            {canGenerateReceipt(order) ? (
+              <a
+                href={`/admin/commandes/${order.id}/documents/receipt.pdf`}
+                className="border-border hover:bg-surface-muted text-body-sm inline-block rounded-sm border px-4 py-2 font-sans font-medium transition-colors"
+              >
+                Reçu (PDF)
+              </a>
+            ) : (
+              <p className="text-muted-foreground text-body-sm font-sans">
+                Le reçu sera disponible une fois le paiement reçu.
+              </p>
+            )}
           </div>
         )}
       </section>

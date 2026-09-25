@@ -705,13 +705,17 @@ A preparation sheet should contain:
 - payment status;
 - preparation indicators.
 
-### 23.2 Invoice / receipt
+### 23.2 Order confirmation / receipt — RESOLVED (Phase 12 Gate 12C)
 
-The administration interface must support generating a printable PDF
-invoice/document for an order.
-
-Exact legal/accounting wording is TBD and must be validated before
-production.
+The administration interface supports generating two printable PDF
+documents per order: a **Confirmation de commande** (available for any
+non-cancelled order) and a **Reçu** (available once payment is
+confirmed received). Neither is called an "invoice" — ECM's V1 sale
+model has no traditional bank-transfer invoice workflow, no QR-bill,
+and ECM is not VAT-registered, so this is deliberately not a legal
+invoice document. Real organisation identity and wording were provided
+directly by ECM and validated before implementation, not invented. See
+`docs/05-ARCHITECTURE.md` §34 (Gate 12C implementation) for full detail.
 
 ---
 
@@ -827,8 +831,9 @@ To be determined.
 ### TBD-007 — Payment service provider
 Must support TWINT and cards.
 
-### TBD-008 — Invoice wording/accounting requirements
-Must be validated before production.
+### TBD-008 — Invoice wording/accounting requirements — RESOLVED (Phase 12 Gate 12C)
+ECM provided real organisation identity and accounting decisions
+directly (not an invented invoice). See §23.2 above.
 
 ### TBD-009 — Exact delivery policy
 Local delivery by sellers is the V1 model.

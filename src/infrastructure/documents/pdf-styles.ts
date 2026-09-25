@@ -193,4 +193,56 @@ export const pdfStyles = StyleSheet.create({
     fontSize: 8,
     color: INK,
   },
+
+  // Phase 12 Gate 12C — customer-facing commercial documents
+  // (order confirmation / receipt). Adds a 4-column priced item table
+  // (the preparation sheet's 2-column table has no price columns) and
+  // an organisation-identity block; everything else above is reused
+  // unchanged.
+  orgBlock: {
+    marginBottom: 14,
+  },
+  priceTableHeaderRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: INK,
+    paddingBottom: 3,
+    marginBottom: 4,
+  },
+  priceTableHeaderCellArticle: {
+    flex: 1,
+    fontFamily: "Helvetica-Bold",
+    fontSize: 9,
+  },
+  priceTableHeaderCellQty: {
+    width: 50,
+    textAlign: "right",
+    fontFamily: "Helvetica-Bold",
+    fontSize: 9,
+  },
+  priceTableHeaderCellPrice: {
+    width: 80,
+    textAlign: "right",
+    fontFamily: "Helvetica-Bold",
+    fontSize: 9,
+  },
+  priceTableRow: {
+    flexDirection: "row",
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#CFC9BC",
+    paddingVertical: 4,
+  },
+  priceTableCellArticle: {
+    flex: 1,
+  },
+  priceTableCellQty: {
+    width: 50,
+    textAlign: "right",
+    fontSize: 10,
+  },
+  priceTableCellPrice: {
+    width: 80,
+    textAlign: "right",
+    fontSize: 10,
+  },
 });

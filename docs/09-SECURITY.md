@@ -983,6 +983,38 @@ filename). No card/payment credential data can appear (same structural
 guarantee as Gate 12A — `payments` never stores it). No generated PDF
 content, and no customer PII, is logged.
 
+## Phase 12 Gate 12C implementation (adopted)
+
+Both commercial-document routes (`confirmation.pdf`, `receipt.pdf`)
+independently call `getAdminOrNull()` and return `401` — the identical
+boundary reused from Gates 12A/12B, not a new one. `Cache-Control:
+private, no-store` on every response; nothing persisted; both
+documents regenerated fresh from `getOrderDetail()` on every request.
+No raw order UUID in either filename (`confirmation-{orderNumber}.pdf`,
+`recu-{orderNumber}.pdf`) or document body.
+
+The `RECEIPT` variant's core financial-correctness guarantee is
+enforced at compile time, not merely at runtime: `buildReceiptContent()`
+only accepts an order whose `customerPaymentStatus` has already been
+narrowed to the literal `"PAID"` by `canGenerateReceipt()`'s own
+TypeScript type-predicate signature — a route cannot construct a
+receipt claiming payment was received unless the type system has
+already proven it. `CANCELLED` is checked explicitly and separately in
+both guards, not inferred from the payment-status check alone.
+
+No seller name, seller settlement status, customer note, email, phone,
+or provider transaction/reference ID appears in either document — all
+excluded by the content model itself (`OrderDocumentContent` simply
+has no field for them), not merely omitted at render time. Customer-
+controlled text renders via `<Text>` with the same structural no-HTML-
+parsing guarantee already established in Gate 12B; verified with the
+identical markup-like-content fixture technique. ECM's organisation
+identity (name, address) is public information, hardcoded in a small
+domain constant — never an environment variable, never treated as a
+secret. ECM is not VAT-registered — no VAT number, rate, or amount
+exists anywhere in this model to leak. Test fixtures use only synthetic
+`@example.test` data, matching every prior gate.
+
 ---
 
 # 49. Admin exports
@@ -1870,6 +1902,14 @@ Use managed platform security where appropriate.
   Handlers reuse the Gate 12A `getAdminOrNull()` boundary unchanged;
   customer text renders via `<Text>` with no HTML-intermediate step, so
   no markup-injection surface exists to neutralize. See §48 above.
+- DECIDED (Phase 12 Gate 12C): the RECEIPT document's "payment was
+  received" claim is enforced at compile time via a TypeScript type
+  predicate (`canGenerateReceipt()`), not merely at runtime — a route
+  cannot construct receipt content for an order whose
+  `customerPaymentStatus` isn't already narrowed to `"PAID"`. ECM's
+  organisation identity is public information, hardcoded, never an
+  environment variable. No VAT field exists anywhere in the model (ECM
+  is not VAT-registered). See §48 above.
 
 ---
 

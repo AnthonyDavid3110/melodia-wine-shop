@@ -1419,9 +1419,56 @@ warnings remain).
 12C), any font embedding (built-in Helvetica only), combined
 "all campaign orders" PDF.
 
-**Phase 12 is NOT complete** — Gate 12C (invoice/receipt PDF,
-explicitly gated behind organisation/wording/numbering validation per
-§75) remains.
+## Phase 12 Gate 12C — Customer-facing commercial documents (verified complete)
+
+Implements the final Phase 12 artifact — resolved as **two** documents,
+not the "invoice" originally anticipated by §73/§23.2/§37/BR-DOC-003:
+**`Confirmation de commande`** (any non-`CANCELLED` order) and
+**`Reçu`** (only once `customerPaymentStatus === "PAID"`). This gate
+was blocked purely on real organisation/wording/accounting validation
+(§75) — never on anything technical — and unblocks only once ECM
+provided that content directly: real organisation name/address, ECM is
+not VAT-registered, no bank-transfer/QR-bill payment model exists, and
+the existing order number is used only as a plain `Référence de
+commande`, never labelled or treated as a legally authoritative
+invoice number. No placeholder content was ever rendered — implementation
+did not begin until the real content was provided.
+
+Both documents share one content model
+(`src/domain/documents/build-order-document-content.ts`) and one
+React-PDF component (`src/infrastructure/documents/order-document.tsx`),
+rendered via a new `renderOrderDocumentPdf()` added to the existing
+`pdf-renderer.tsx` — no new dependency, no migration, reusing Gate
+12B's entire React-PDF infrastructure unchanged. The RECEIPT variant's
+"never claim payment when not paid" requirement is enforced at compile
+time: `buildReceiptContent()`'s parameter type only accepts an order
+already narrowed to `customerPaymentStatus: "PAID"`, and
+`canGenerateReceipt()` is a TypeScript type predicate that performs
+that narrowing automatically at every call site — not merely a runtime
+check. Routes: `/admin/commandes/[id]/documents/confirmation.pdf`,
+`/admin/commandes/[id]/documents/receipt.pdf`, both on the existing
+order-detail Documents section (never `/admin/exports`), both
+independently `getAdminOrNull()`-gated exactly like every prior Gate
+12A/12B route.
+
+Verified: `pnpm test` (580/580 across 56 files, +9 new document test
+files), `pnpm test:db` (271/271 across 24 files, unchanged — no new
+query semantics needed), `pnpm test:e2e` (79/79, +6 new order-document
+scenarios, all pre-existing specs unaffected), `pnpm build`, `pnpm
+lint`, `pnpm format:check` all clean (only the pre-existing Gate 11C
+warnings remain).
+
+**Deliberately not done in this gate**: anything resembling a
+traditional bank-transfer invoice, VAT/TVA handling of any kind, a
+Swiss QR-bill payment slip, a dedicated `Invoice` database entity, a
+sequential invoice-numbering counter — all explicitly rejected by ECM's
+own decision, not deferred as a technical gap.
+
+**Phase 12 is now COMPLETE.** All of §73's goal list (order
+confirmation/receipt, preparation PDF, seller preparation summary, all
+4 CSV exports) is implemented, tested, and verified. §77's completion
+criterion — "ECM can prepare physical orders and export campaign data
+without manual database access" — is met.
 
 ---
 
@@ -2034,7 +2081,7 @@ Application implementation:
     Phase 9   Preparation and fulfilment           COMPLETE
     Phase 10  Online payments                      COMPLETE
     Phase 11  Transactional email                   COMPLETE
-    Phase 12  Documents and exports                  Gate 12A/12B COMPLETE (Gate 12C pending)
+    Phase 12  Documents and exports                  COMPLETE
     Phase 13+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

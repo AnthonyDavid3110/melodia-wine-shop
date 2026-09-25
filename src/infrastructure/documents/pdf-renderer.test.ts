@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { buildPreparationSheetContent } from "@/domain/documents/build-preparation-sheet-content";
 import { buildSellerPreparationSummaryContent } from "@/domain/documents/build-seller-preparation-summary-content";
-import { renderPreparationSheetPdf, renderSellerPreparationSummaryPdf } from "./pdf-renderer";
+import {
+  buildOrderConfirmationContent,
+  buildReceiptContent,
+  type OrderDocumentItemInput,
+  type OrderDocumentOrderInput,
+} from "@/domain/documents/build-order-document-content";
+import {
+  renderOrderDocumentPdf,
+  renderPreparationSheetPdf,
+  renderSellerPreparationSummaryPdf,
+} from "./pdf-renderer";
 
 /**
  * Real-renderer smoke tests (Phase 12 Gate 12B, approved Step 2 §17)
@@ -168,6 +178,104 @@ describe("renderSellerPreparationSummaryPdf", () => {
       [],
     );
     const buffer = await renderSellerPreparationSummaryPdf(summary);
+    assertLooksLikeAPdf(buffer);
+  });
+});
+
+describe("renderOrderDocumentPdf", () => {
+  function orderDocOrder(
+    overrides: Partial<OrderDocumentOrderInput> = {},
+  ): OrderDocumentOrderInput {
+    return {
+      orderNumber: "ECM-2026-0042",
+      createdAt: new Date("2026-09-15T10:00:00Z"),
+      customerFirstName: "Jean",
+      customerLastName: "Dupont",
+      customerAddress: "Rue du Lac 15",
+      customerPostalCode: "1400",
+      customerCity: "Yverdon-les-Bains",
+      totalAmount: 19600,
+      customerPaymentStatus: "PAID",
+      ...overrides,
+    };
+  }
+
+  const productItem: OrderDocumentItemInput = {
+    itemType: "PRODUCT",
+    nameSnapshot: "Chasselas",
+    unitPriceAmount: 1800,
+    quantity: 2,
+    lineTotalAmount: 3600,
+    bundleComponents: [],
+  };
+
+  const bundleItem: OrderDocumentItemInput = {
+    itemType: "BUNDLE",
+    nameSnapshot: "Coffret Découverte",
+    unitPriceAmount: 4500,
+    quantity: 1,
+    lineTotalAmount: 4500,
+    bundleComponents: [
+      { productNameSnapshot: "Chasselas", quantityPerBundle: 2 },
+      { productNameSnapshot: "Pinot Noir", quantityPerBundle: 1 },
+    ],
+  };
+
+  it("renders an ORDER_CONFIRMATION to a valid PDF buffer", async () => {
+    const content = buildOrderConfirmationContent(orderDocOrder(), [productItem], "TWINT");
+    const buffer = await renderOrderDocumentPdf(content);
+    assertLooksLikeAPdf(buffer);
+  });
+
+  it("renders a RECEIPT to a valid PDF buffer", async () => {
+    const paid = orderDocOrder({ customerPaymentStatus: "PAID" }) as OrderDocumentOrderInput & {
+      customerPaymentStatus: "PAID";
+    };
+    const content = buildReceiptContent(paid, [productItem], "SELLER");
+    const buffer = await renderOrderDocumentPdf(content);
+    assertLooksLikeAPdf(buffer);
+  });
+
+  it("renders bundle composition without throwing", async () => {
+    const content = buildOrderConfirmationContent(orderDocOrder(), [bundleItem], "CARD");
+    const buffer = await renderOrderDocumentPdf(content);
+    assertLooksLikeAPdf(buffer);
+  });
+
+  it("renders customer-controlled markup-like text as inert content without throwing", async () => {
+    const content = buildOrderConfirmationContent(
+      orderDocOrder({
+        customerFirstName: '<script>alert("x")</script>',
+        customerAddress: "<img src=x onerror=alert(1)>",
+      }),
+      [productItem],
+      "TWINT",
+    );
+    const buffer = await renderOrderDocumentPdf(content);
+    assertLooksLikeAPdf(buffer);
+  });
+
+  it("renders the accented organisation address and an accented customer name correctly", async () => {
+    const content = buildOrderConfirmationContent(
+      orderDocOrder({ customerFirstName: "Amélie", customerLastName: "Müller-Genève" }),
+      [productItem],
+      "TWINT",
+    );
+    const buffer = await renderOrderDocumentPdf(content);
+    assertLooksLikeAPdf(buffer);
+  });
+
+  it("renders many line items without throwing", async () => {
+    const manyItems: OrderDocumentItemInput[] = Array.from({ length: 20 }, (_, index) => ({
+      itemType: "PRODUCT",
+      nameSnapshot: `Vin ${index + 1}`,
+      unitPriceAmount: 1800,
+      quantity: index + 1,
+      lineTotalAmount: 1800 * (index + 1),
+      bundleComponents: [],
+    }));
+    const content = buildOrderConfirmationContent(orderDocOrder(), manyItems, "TWINT");
+    const buffer = await renderOrderDocumentPdf(content);
     assertLooksLikeAPdf(buffer);
   });
 });

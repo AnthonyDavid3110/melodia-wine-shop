@@ -968,16 +968,21 @@ Individual preparation sheet includes:
 
 ---
 
-# 37. Flow — Generate invoice/document
+# 37. Flow — Generate order confirmation / receipt — RESOLVED (Phase 12 Gate 12C)
 
 Administrator opens an order and selects:
 
-`Generate invoice`
+`Confirmation de commande (PDF)`
 
-The system generates a printable PDF using the immutable commercial
-information stored with the order.
+— available for any non-cancelled order — or, once the order's payment
+is confirmed received:
 
-Exact accounting requirements remain TBD.
+`Reçu (PDF)`
+
+Both generate a printable PDF using the immutable commercial
+information stored with the order. Neither is an invoice: ECM's V1
+sale model has no bank-transfer payment workflow, and ECM is not
+VAT-registered. A cancelled order offers neither action.
 
 ---
 

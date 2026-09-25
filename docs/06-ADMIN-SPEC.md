@@ -1169,9 +1169,9 @@ Avoid vanity charts with no practical value.
 
 ---
 
-# 51. Exports
+# 51. Exports and documents
 
-Route:
+CSV exports, route:
 
     /admin/exports
 
@@ -1182,11 +1182,13 @@ Available exports:
     Seller sales CSV
     Wine requirements CSV
 
-PDF documents:
+PDF documents (RESOLVED — Phase 12 Gate 12C for the last two; order-
+scoped, generated from the order-detail page's Documents section, not
+from `/admin/exports`):
 
-    Preparation sheets
-    Seller preparation summaries
-    Order invoice / receipt
+    Preparation sheets                    (order-detail page)
+    Seller preparation summaries          (per-seller card, /admin/preparation)
+    Confirmation de commande / Reçu       (order-detail page; Reçu only once paid)
 
 ---
 

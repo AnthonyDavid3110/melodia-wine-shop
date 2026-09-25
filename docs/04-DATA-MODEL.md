@@ -1678,12 +1678,13 @@ Full-refund workflow only, per `08-PAYMENTS.md` §41/§68. `Payment.status`
 keeps `PARTIALLY_REFUNDED` as an available value for provider/data
 fidelity, but no V1 workflow exposes triggering a partial refund.
 
-## TBD-DATA-003 — Invoice model
+## TBD-DATA-003 — Invoice model — RESOLVED (Phase 12 Gate 12C)
 
-Determine whether invoice data requires a dedicated Invoice entity or
-whether documents can initially be generated directly from Order data.
-
-Still open — out of scope until Phase 12 (Documents and exports).
+No dedicated entity. ECM's V1 commercial documents (order confirmation,
+receipt) are generated on demand directly from `Order`/`OrderItem`/
+`OrderBundleComponent` snapshots — no persistence, no migration. This
+remains appropriate because ECM's V1 model has no traditional invoice/
+numbering requirement (see `02-BUSINESS-RULES.md` BR-DOC-003).
 
 ## TBD-DATA-004 — Settlement workflow — RESOLVED (Phase 2)
 

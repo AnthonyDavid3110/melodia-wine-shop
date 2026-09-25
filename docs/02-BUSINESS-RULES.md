@@ -669,14 +669,15 @@ not potentially modified current catalogue prices.
 Preparation staff must be able to identify whether payment is already
 complete or expected through the seller.
 
-## BR-DOC-003 — Invoice numbering
+## BR-DOC-003 — Order reference, not an invoice number — RESOLVED (Phase 12 Gate 12C)
 
-TBD.
-
-Order number and legally/accountingly appropriate invoice numbering may
-not necessarily be the same concept.
-
-This must be validated before production invoice implementation.
+ECM's V1 commercial documents (order confirmation, receipt) are not
+traditional invoices — no bank-transfer payment workflow, no
+accounting numbering scheme exists. The existing human order number is
+displayed as `Référence de commande`, explicitly never labelled or
+treated as a legally/accountingly authoritative invoice number. No
+dedicated invoice-numbering counter or `Invoice` entity was
+introduced.
 
 ---
 
@@ -789,9 +790,12 @@ Define policy for:
 - price changes;
 - partial refunds.
 
-## TBD-BR-003 — Invoice/accounting requirements
+## TBD-BR-003 — Invoice/accounting requirements — RESOLVED (Phase 12 Gate 12C)
 
-Confirm required invoice fields and numbering with the treasurer.
+Confirmed directly with ECM: not VAT-registered (no VAT field/
+calculation anywhere), no bank-transfer/QR-bill payment workflow, no
+dedicated invoice numbering — see BR-DOC-003 above and
+`docs/05-ARCHITECTURE.md` §34.
 
 ## TBD-BR-004 — Delivery geographical limits
 
