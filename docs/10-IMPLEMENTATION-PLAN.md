@@ -1516,6 +1516,69 @@ Dashboard answers the main operational questions defined in
 
 ---
 
+## Phase 13 Gate 13B implementation (adopted) — operational `/admin` dashboard
+
+Phase 13 was split into two gates at approval time:
+
+    Gate 13B — operational `/admin` dashboard (implemented here)
+    Gate 13C — `/admin/statistiques` (not yet implemented)
+
+**Phase 13 is NOT complete.** Gate 13B answers "what is happening now,
+and what needs attention?" (docs/06-ADMIN-SPEC.md §4-§7). Gate 13C —
+"how is/was the campaign performing?" (§50: sales by wine/bundle/seller,
+TWINT vs. card, broader historical campaign selection) — remains a
+separate, later gate.
+
+Architecture: every KPI/alert/seller-objective figure is composed from
+existing pure domain calculators (`calculateSellerSales`,
+`calculateSellerCollections`, `calculateSellerProgress`) and existing
+batched infrastructure queries (`listCampaignSellerSalesSummaries`,
+`getCampaignWineRequirements`, `selectAuthoritativePaymentForExport`,
+`resolveRequestedCampaign`) — see `src/domain/dashboard/` (five small,
+independently tested pure functions) and
+`src/infrastructure/dashboard/dashboard.ts` (one new batched query,
+`getCampaignDashboardOrders`, mirroring `listOrdersForCampaignExport`'s
+shape minus item/bundle detail the dashboard doesn't need). No new
+aggregation/exclusion rule was invented — `outstandingCustomerPayments`
+and `outstandingSellerSettlements` both come from the same
+`calculateSellerCollections()` call, so they structurally cannot be
+inferred from one another (CLAUDE.md §11).
+
+No migration. No new dependency. No chart — tables/numbers only
+(docs/07-DESIGN-SYSTEM.md §48, §80 above).
+
+**`/admin/commandes` filter extension (Gate 13A preflight finding):**
+the order list had no URL-driven filters at all — `OrderSearchList` was
+a purely client-side, in-memory filter with no query-param wiring, and
+had no seller/unassigned filter. Extended minimally: `?status=`,
+`?paymentStatus=` now seed the existing filters' initial state, and a
+new "Vendeur" filter (`?seller=unassigned`) was added — a plain
+all/unassigned toggle, not a full seller picker. The order list itself
+remains deliberately NOT campaign-scoped (unchanged Phase 7 decision,
+`orders.ts`'s own comment) — so an alert's linked view is not itself
+scoped to the dashboard's selected campaign. This is a known, accepted
+limitation, not a defect: at this campaign's scale there is normally at
+most one ACTIVE and one recently-CLOSED campaign with live orders.
+
+**Deferred: payment-anomaly alert.** `PAYMENT_ANOMALY_DETECTED` is a
+plain append-only `orderEvents` log entry (`online-payments.ts`) with no
+"resolved" state and no anomaly table — the data cannot reliably
+distinguish a current, actionable anomaly from a historical one that was
+already handled. Per the Gate 13B brief's own instruction, this alert is
+deferred rather than shown with invented/unreliable semantics. No
+persistence or state-machine was added to support it.
+
+**Known limitation: outstanding-settlements alert destination.** No
+filtered "sellers who still owe money this campaign" view exists.
+The alert links to `/admin/vendeurs` (the closest real destination,
+per the approved brief) rather than a fake/invented filtered link.
+Building that filtered view is out of Gate 13B's scope.
+
+**Companion fix:** `/admin/exports` (built in Gate 12A) had no admin
+nav link; added one, since Gate 13B already touches the nav area.
+
+---
+
 # 82. Phase 14 — Security and resilience hardening
 
 ## Goal
@@ -2082,7 +2145,8 @@ Application implementation:
     Phase 10  Online payments                      COMPLETE
     Phase 11  Transactional email                   COMPLETE
     Phase 12  Documents and exports                  COMPLETE
-    Phase 13+ Not started
+    Phase 13  Statistics and dashboard        IN PROGRESS (Gate 13B done, Gate 13C pending)
+    Phase 14+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master

@@ -47,18 +47,39 @@ const PAYMENT_TONE: Record<string, StatusTone> = {
 };
 
 const ALL = "__all__";
+const UNASSIGNED = "unassigned";
 
-/** Client-side search/filter over the full order list (Phase 7 §17) — same scale-appropriate convention as Products/Sellers. */
-export function OrderSearchList({ orders }: { orders: OrderRow[] }) {
+/**
+ * Client-side search/filter over the full order list (Phase 7 §17) —
+ * same scale-appropriate convention as Products/Sellers. `initialStatus`/
+ * `initialPaymentStatus`/`initialSeller` seed the filter state from
+ * `?status=`/`?paymentStatus=`/`?seller=unassigned` query params (Phase
+ * 13 Gate 13B) so the dashboard's alert links can deep-link into a
+ * pre-filtered view — filtering itself stays entirely client-side and
+ * in-memory afterward, unchanged.
+ */
+export function OrderSearchList({
+  orders,
+  initialStatus = ALL,
+  initialPaymentStatus = ALL,
+  initialSeller = ALL,
+}: {
+  orders: OrderRow[];
+  initialStatus?: string;
+  initialPaymentStatus?: string;
+  initialSeller?: string;
+}) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState(ALL);
-  const [paymentStatus, setPaymentStatus] = useState(ALL);
+  const [status, setStatus] = useState(initialStatus);
+  const [paymentStatus, setPaymentStatus] = useState(initialPaymentStatus);
+  const [seller, setSeller] = useState(initialSeller);
   const [source, setSource] = useState(ALL);
 
   const normalized = query.trim().toLowerCase();
   const filtered = orders.filter((order) => {
     if (status !== ALL && order.status !== status) return false;
     if (paymentStatus !== ALL && order.customerPaymentStatus !== paymentStatus) return false;
+    if (seller === UNASSIGNED && order.sellerName !== null) return false;
     if (source !== ALL && order.source !== source) return false;
     if (!normalized) return true;
     const haystack = [order.orderNumber, order.customerName, order.sellerName ?? ""]
@@ -111,6 +132,18 @@ export function OrderSearchList({ orders }: { orders: OrderRow[] }) {
                   {customerPaymentStatusLabel(value)}
                 </SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="order-seller-filter">Vendeur</Label>
+          <Select value={seller} onValueChange={setSeller}>
+            <SelectTrigger id="order-seller-filter" className="w-[170px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Tous les vendeurs</SelectItem>
+              <SelectItem value={UNASSIGNED}>Non assigné</SelectItem>
             </SelectContent>
           </Select>
         </div>

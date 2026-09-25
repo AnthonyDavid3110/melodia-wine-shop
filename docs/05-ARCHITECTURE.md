@@ -1458,6 +1458,60 @@ to Gate 12B).
 
 ---
 
+## Phase 13 Gate 13B implementation (adopted) — operational dashboard
+
+`/admin` (docs/06-ADMIN-SPEC.md §4-§7) composes every KPI/alert/seller-
+objective figure from existing pure domain calculators and batched
+infrastructure queries — no new business rule was invented.
+
+New domain layer, `src/domain/dashboard/` — five small pure functions,
+each independently unit-tested, mirroring the granularity of
+`src/domain/sellers/`:
+
+    buildPrimaryKpis            revenue, orders, bottles, average order
+    buildPaymentKpis            online paid, seller payment, and the two
+                                 distinct "outstanding" figures (both
+                                 derived from the SAME
+                                 calculateSellerCollections() call, so
+                                 they cannot be inferred from each other)
+    buildOperationalKpis        unassigned / to-prepare / prepared / delivered
+    buildDashboardAlerts        the three REQUIRED alerts, zero-suppressed
+    buildSellerObjectiveSummary compact "X / Y objectifs atteints"
+
+New infrastructure, `src/infrastructure/dashboard/dashboard.ts` —
+`getCampaignDashboardOrders()`: one new batched query (2 queries total,
+no N+1), mirroring `listOrdersForCampaignExport()`'s payment-batching
+shape but without item/bundle-component detail (the dashboard needs no
+line-item view). Returns every status including CANCELLED — exclusion
+is each pure calculator's own responsibility, never pre-filtered at the
+query layer, so a test can assert the exclusion rule directly against
+the calculator.
+
+Campaign selection reuses `resolveRequestedCampaign()` verbatim — the
+exact mechanism `/admin/exports` already uses (ACTIVE, else most-recent
+relevant CLOSED, else the "no eligible campaign" fallback; DRAFT/
+ARCHIVED excluded).
+
+`/admin/commandes` filter extension: the order list had no URL-driven
+filters before this gate. `?status=`/`?paymentStatus=` now seed the
+existing client-side filters' initial state (validated server-side
+against the known enum values before being passed down — an unrecognized
+value is simply ignored, never trusted as a query condition). A new
+minimal "Vendeur" filter (`?seller=unassigned`) was added — a plain
+all/unassigned toggle, not a seller-name picker, since that is all the
+REQUIRED dashboard alert needs. The order list itself remains
+deliberately NOT campaign-scoped (unchanged Phase 7 decision) — a known,
+accepted limitation of the alert deep-links at this campaign's scale.
+
+Deferred: a payment-anomaly alert. `PAYMENT_ANOMALY_DETECTED`
+(`src/infrastructure/payments/online-payments.ts`) is an append-only
+`orderEvents` log entry with no "resolved" state — the data cannot
+reliably distinguish a current, actionable anomaly from a historical one
+already handled, so no alert was built on top of it rather than showing
+a potentially misleading financial warning.
+
+---
+
 # 36. Domain layer
 
 Business rules should not live exclusively inside React components.

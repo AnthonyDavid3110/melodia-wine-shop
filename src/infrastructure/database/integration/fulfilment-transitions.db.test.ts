@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { createOrder, type CreateOrderInput } from "@/infrastructure/orders/create-order";
 import {
@@ -344,11 +344,23 @@ describe("bulkPrepareOrders", () => {
       expect(rows.every((row) => row.status === "PREPARED")).toBe(true);
       expect(rows.every((row) => row.preparedAt !== null)).toBe(true);
 
+      // Scoped to this test's own fixture order IDs — the shared dev
+      // database may legitimately hold ORDER_PREPARED events from
+      // unrelated, real orders (Gate 13B.2: a global type-only count
+      // previously collided with such a row).
       const events = await tx
         .select()
         .from(orderEvents)
-        .where(eq(orderEvents.type, "ORDER_PREPARED"));
+        .where(
+          and(
+            eq(orderEvents.type, "ORDER_PREPARED"),
+            inArray(orderEvents.orderId, [orderA.id, orderB.id]),
+          ),
+        );
       expect(events).toHaveLength(2);
+      for (const event of events) {
+        expect(event).toMatchObject({ actorType: "ADMIN", adminUserId: admin.id });
+      }
     });
   });
 
@@ -500,11 +512,21 @@ describe("bulkMarkOrdersDelivered", () => {
       expect(rows.every((row) => row.status === "DELIVERED")).toBe(true);
       expect(rows.every((row) => row.deliveredAt !== null)).toBe(true);
 
+      // Scoped to this test's own fixture order IDs — same isolation
+      // fix as bulkPrepareOrders above (Gate 13B.2).
       const events = await tx
         .select()
         .from(orderEvents)
-        .where(eq(orderEvents.type, "ORDER_DELIVERED"));
+        .where(
+          and(
+            eq(orderEvents.type, "ORDER_DELIVERED"),
+            inArray(orderEvents.orderId, [orderA.id, orderB.id]),
+          ),
+        );
       expect(events).toHaveLength(2);
+      for (const event of events) {
+        expect(event).toMatchObject({ actorType: "ADMIN", adminUserId: admin.id });
+      }
     });
   });
 });

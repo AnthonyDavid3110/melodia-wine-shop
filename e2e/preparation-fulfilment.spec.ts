@@ -211,27 +211,42 @@ test("realistic end-to-end flow: requirements, seller grouping, prepare, handoff
   await expect(page.getByText("avant de pouvoir la remettre", { exact: false })).toBeVisible();
 
   // --- Bulk-prepare the two seller-assigned orders from "Toutes les commandes" ---
+  // Scoped to #toutes-les-commandes (rather than an unscoped
+  // page.getByLabel(...).first()) because the shared dev database can
+  // legitimately hold other real orders whose own seller group renders
+  // its own identically-labelled "Tout sélectionner" checkbox earlier
+  // in the DOM, under "Par vendeur" (Gate 13B.2 isolation fix).
+  const toutesLesCommandes = page.locator("#toutes-les-commandes");
   await page.goto(`/admin/preparation?campaign=${campaign.id}`, { waitUntil: "networkidle" });
-  await page.locator("#toutes-les-commandes").scrollIntoViewIfNeeded();
-  await page.getByLabel("Tout sélectionner").first().click();
+  await toutesLesCommandes.scrollIntoViewIfNeeded();
+  await toutesLesCommandes.getByLabel("Tout sélectionner").click();
   await page.getByRole("button", { name: "Marquer comme préparées" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Confirmer" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 
+  // Scoped to this specific seller's own group container (a direct
+  // child of #par-vendeur) — same reasoning: another real seller can
+  // simultaneously have PREPARED/HANDED_TO_SELLER orders of their own,
+  // rendering an identically-labelled checkbox and "Remettre au
+  // vendeur"/"Marquer comme livrées" button in a different group.
+  const sellerGroup = page.locator("#par-vendeur > div", {
+    has: page.getByRole("link", { name: seller.name, exact: true }),
+  });
+
   // --- Bulk handoff for the seller (both their orders are now PREPARED) ---
   await page.reload({ waitUntil: "networkidle" });
-  await page.locator("#par-vendeur").scrollIntoViewIfNeeded();
-  await page.getByLabel("Tout sélectionner").first().click();
-  await page.getByRole("button", { name: "Remettre au vendeur" }).click();
+  await sellerGroup.scrollIntoViewIfNeeded();
+  await sellerGroup.getByLabel("Tout sélectionner").click();
+  await sellerGroup.getByRole("button", { name: "Remettre au vendeur" }).click();
   await page.getByRole("button", { name: "Confirmer" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 
   // --- Bulk delivery for the seller ---
   await page.reload({ waitUntil: "networkidle" });
-  await page.locator("#par-vendeur").scrollIntoViewIfNeeded();
-  await page.getByLabel("Tout sélectionner").first().click();
-  await page.getByRole("button", { name: "Marquer comme livrées" }).click();
+  await sellerGroup.scrollIntoViewIfNeeded();
+  await sellerGroup.getByLabel("Tout sélectionner").click();
+  await sellerGroup.getByRole("button", { name: "Marquer comme livrées" }).click();
   await page.getByRole("button", { name: "Confirmer" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 
