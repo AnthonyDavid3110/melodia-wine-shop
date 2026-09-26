@@ -386,6 +386,18 @@ For each seller, the system must provide at least:
 - seller-payment sales;
 - seller-payment amounts still pending.
 
+**RESOLVED (Phase 13 Gate 13C):** "online-paid sales" — deferred at
+Phase 8 because online payments did not exist yet (`getSellerFinancialSummary()`'s
+own comment recorded this explicitly) — is now delivered on
+`/admin/statistiques`'s seller table via `listCampaignSellerSalesSummaries()`'s
+new `onlinePaidSales` field: the commercial value of TWINT/CARD orders
+attributed to the seller whose authoritative payment attempt
+(`selectAuthoritativePaymentForExport()`) succeeded. Retries/failed
+attempts are never counted; SELLER-payment orders never contribute to
+it. The other three figures (total attributed sales, seller-payment
+sales via `sales`, seller-payment amounts still pending via
+`stillToCollect`) were already delivered in Phase 8/12A.
+
 ## BR-COL-003 — Treasurer settlement is operationally relevant
 
 The application should make it possible to determine how much money each

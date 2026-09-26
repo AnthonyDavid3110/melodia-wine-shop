@@ -16,9 +16,9 @@ import { LogoutButton } from "./logout-button";
  * Nav links only ever point at routes that actually exist in the
  * current gate — Commandes was added in Phase 7; Exports was added in
  * Phase 13 Gate 13B (it existed since Phase 12 Gate 12A but had been
- * missed from this list until now). Paiements/Statistiques still have
- * no link until those routes actually get built (no fake navigation
- * destinations, Gate 2B §15).
+ * missed from this list until now); Statistiques was added in Phase 13
+ * Gate 13C. Paiements still has no link until that route actually gets
+ * built (no fake navigation destinations, Gate 2B §15).
  *
  * `<main>` carries the shared content container (Gate 2C §1) — a
  * consistent max-width and horizontal/vertical padding for every admin
@@ -58,6 +58,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
             </Link>
             <Link href="/admin/preparation" className="hover:text-accent transition-colors">
               Préparation
+            </Link>
+            <Link href="/admin/statistiques" className="hover:text-accent transition-colors">
+              Statistiques
             </Link>
             <Link href="/admin/exports" className="hover:text-accent transition-colors">
               Exports

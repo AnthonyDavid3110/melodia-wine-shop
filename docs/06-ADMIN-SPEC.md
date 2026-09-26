@@ -1167,6 +1167,18 @@ Statistics should help operate and evaluate the campaign.
 
 Avoid vanity charts with no practical value.
 
+> **Gate 13C implementation note (adopted):** "sales by wine" shows two
+> columns with deliberately different populations — bottles (from
+> `getCampaignWineRequirements()`, bundle-inclusive) and direct-sales
+> revenue (from `PRODUCT`-type order lines only). Bundle revenue is
+> never allocated across its component wines — no authoritative
+> allocation rule exists — so a wine sold only inside bundles shows
+> `bottles > 0` with zero direct revenue; this is correct, not a bug,
+> and the page carries an explanatory caption to avoid the impression
+> that the two columns should reconcile. Campaign selection covers
+> ACTIVE/CLOSED/ARCHIVED (not just ACTIVE/CLOSED, unlike `/admin`) per
+> BR-CAM-003. See docs/05-ARCHITECTURE.md for the full architecture.
+
 ---
 
 # 51. Exports and documents

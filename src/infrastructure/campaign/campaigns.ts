@@ -259,6 +259,62 @@ export async function resolveDefaultFulfilmentCampaign(dbHandle: DbHandle = db) 
   );
 }
 
+/**
+ * Campaigns `/admin/statistiques` can meaningfully report on (Phase 13
+ * Gate 13C) — ACTIVE, CLOSED, or ARCHIVED, newest first. Unlike
+ * `listFulfilmentRelevantCampaigns()`, ARCHIVED is deliberately
+ * INCLUDED: statistics are historical/analytical, not operational, and
+ * BR-CAM-003 explicitly requires "statistics" to remain available after
+ * a campaign is archived. DRAFT is excluded — a DRAFT campaign can
+ * never have any orders yet (BR-CAM-002), so it would always show an
+ * empty page.
+ */
+export async function listStatisticsRelevantCampaigns(dbHandle: DbHandle = db) {
+  return dbHandle
+    .select()
+    .from(campaigns)
+    .where(inArray(campaigns.status, ["ACTIVE", "CLOSED", "ARCHIVED"]))
+    .orderBy(desc(campaigns.createdAt));
+}
+
+/**
+ * The default `/admin/statistiques` campaign context — same shape as
+ * `resolveDefaultFulfilmentCampaign()` (ACTIVE first, else the most
+ * recently created historical campaign that actually has orders, else
+ * the most recently created historical campaign at all), but over the
+ * ACTIVE ∪ CLOSED ∪ ARCHIVED population above rather than ACTIVE ∪
+ * CLOSED. Kept as its own small function rather than parametrizing the
+ * fulfilment resolver — the two serve different, independently-approved
+ * populations and this keeps each one simple to read on its own.
+ */
+export async function resolveDefaultStatisticsCampaign(dbHandle: DbHandle = db) {
+  const active = await getActiveCampaign(dbHandle);
+  if (active) {
+    return active;
+  }
+
+  const historicalCampaigns = await dbHandle
+    .select()
+    .from(campaigns)
+    .where(inArray(campaigns.status, ["CLOSED", "ARCHIVED"]))
+    .orderBy(desc(campaigns.createdAt));
+  if (historicalCampaigns.length === 0) {
+    return null;
+  }
+
+  const campaignIds = historicalCampaigns.map((campaign) => campaign.id);
+  const orderRows = await dbHandle
+    .select({ campaignId: orders.campaignId })
+    .from(orders)
+    .where(inArray(orders.campaignId, campaignIds));
+  const campaignIdsWithOrders = new Set(orderRows.map((row) => row.campaignId));
+
+  return (
+    historicalCampaigns.find((campaign) => campaignIdsWithOrders.has(campaign.id)) ??
+    historicalCampaigns[0]!
+  );
+}
+
 export async function listCampaignEvents(campaignId: string, dbHandle: DbHandle = db) {
   return dbHandle
     .select()

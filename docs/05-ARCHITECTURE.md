@@ -1512,6 +1512,66 @@ a potentially misleading financial warning.
 
 ---
 
+## Phase 13 Gate 13C implementation (adopted) — analytical statistics
+
+`/admin/statistiques` (docs/06-ADMIN-SPEC.md §50) answers "how is/was
+the campaign performing?" — historical/analytical, distinct from
+`/admin`'s operational "what needs attention now?" (Gate 13B). Shows no
+individual order/customer rows (docs/09-SECURITY.md §37).
+
+**Campaign resolution** (`src/infrastructure/campaign/campaigns.ts`):
+`listStatisticsRelevantCampaigns()` / `resolveDefaultStatisticsCampaign()`
+— ACTIVE ∪ CLOSED ∪ ARCHIVED (DRAFT excluded, since it can never have
+orders — BR-CAM-002). Deliberately NOT the same population as
+`listFulfilmentRelevantCampaigns()` (ACTIVE ∪ CLOSED only) — BR-CAM-003
+explicitly requires "statistics" to remain available after archiving,
+which the fulfilment-scoped resolver was never meant to support.
+`src/infrastructure/campaign/resolve-requested-statistics-campaign.ts`
+mirrors `resolve-requested-campaign.ts`'s exact shape over this
+different population, rather than parametrizing one shared resolver.
+
+**New infrastructure**, `src/infrastructure/statistics/statistics.ts`:
+`getCampaignItemSalesBreakdown()` — one new batched query (2 queries,
+no N+1), deliberately narrower than `listOrdersForCampaignExport()`
+(which also loads seller/payment/bundle-component data this page never
+needs). Everything else reuses Gate 13B/existing infrastructure
+unchanged: `getCampaignDashboardOrders()`, `getCampaignWineRequirements()`,
+`listCampaignSellerSalesSummaries()`.
+
+**New domain layer**, `src/domain/statistics/`: `buildWineSalesTable()`
+(bottles from wine requirements, bundle-inclusive; direct-sales revenue
+from `PRODUCT`-type order lines only — bundle revenue is never
+allocated across component wines, no authoritative allocation rule
+exists), `buildBundleSalesTable()` (bundle-line grouping, composition
+omitted by design), `buildTwintVsCardBreakdown()` (reuses the exact
+`DashboardOrderInput` population `buildPaymentKpis()`'s `onlinePaid`
+figure already uses, split further by method).
+
+**BR-COL-002 "online-paid sales"** (previously deferred at Phase 8):
+`listCampaignSellerSalesSummaries()` was extended with a new
+`onlinePaidSales` field — the authoritative payment per order
+(`selectAuthoritativePaymentForExport()`, never a raw attempt count),
+restricted to TWINT/CARD orders whose authoritative attempt succeeded.
+The existing SELLER-only payment join used for collections figures was
+left untouched; a second, separate batched all-payments-by-order query
+backs this new field. `getSellerFinancialSummary()` (the Phase 8
+single-seller view) was deliberately NOT changed — its own "no online
+figure yet" comment predates Phase 10 but changing that settled Phase 8
+display decision was out of this gate's scope.
+
+**Refund semantics**: left exactly as every reused function already
+defines them — no blanket `REFUNDED == CANCELLED` rule was introduced.
+No order in the running system can currently reach
+`customerPaymentStatus = REFUNDED` (`TBD-PAY-005`, Refund UI, remains
+unresolved), so this has no practical effect today; the authoritative
+payment-status check (`status = SUCCEEDED`) already correctly excludes
+a hypothetical future refunded online payment from "online-paid sales"
+without any new rule being added.
+
+No migration. No new dependency. No chart.
+
+---
+
 # 36. Domain layer
 
 Business rules should not live exclusively inside React components.

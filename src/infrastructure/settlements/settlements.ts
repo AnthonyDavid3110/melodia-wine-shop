@@ -19,6 +19,7 @@ import { calculateSellerProgress } from "@/domain/sellers/calculate-seller-progr
 import { calculateSellerSales } from "@/domain/sellers/calculate-seller-sales";
 import { calculateSettlementAmount } from "@/domain/settlements/calculate-settlement-amount";
 import { isEligibleForSettlement } from "@/domain/settlements/is-eligible-for-settlement";
+import { selectAuthoritativePaymentForExport } from "@/domain/csv/select-authoritative-payment-for-export";
 
 type DbHandle = Pick<typeof db, "select" | "insert" | "update" | "transaction">;
 
@@ -204,6 +205,8 @@ export interface CampaignSellerSalesSummaryRow {
   target: Money | null;
   /** `null` for the unassigned pseudo-row. */
   progressPercentage: number | null;
+  /** BR-COL-002 — commercial value of TWINT/CARD orders attributed to this seller and authoritatively confirmed as paid. */
+  onlinePaidSales: Money;
   stillToCollect: Money;
   collected: Money;
   stillToRemit: Money;
@@ -268,6 +271,29 @@ export async function listCampaignSellerSalesSummaries(
     ordersByGroupKey.set(key, list);
   }
 
+  // Every payment ATTEMPT per order (not just the SELLER-method row
+  // above) — needed to resolve the one authoritative online payment per
+  // order via `selectAuthoritativePaymentForExport()` for BR-COL-002's
+  // "online-paid sales" figure, without disturbing the existing
+  // SELLER-only join `summarizeGroup()`'s collections figures rely on.
+  const allPaymentsByOrderId = new Map<string, (typeof payments.$inferSelect)[]>();
+  if (orderRows.length > 0) {
+    const allPayments = await dbHandle
+      .select()
+      .from(payments)
+      .where(
+        inArray(
+          payments.orderId,
+          orderRows.map((row) => row.order.id),
+        ),
+      );
+    for (const payment of allPayments) {
+      const list = allPaymentsByOrderId.get(payment.orderId) ?? [];
+      list.push(payment);
+      allPaymentsByOrderId.set(payment.orderId, list);
+    }
+  }
+
   const settledSettlements = await dbHandle
     .select({ sellerId: sellerSettlements.sellerId, amount: sellerSettlements.amount })
     .from(sellerSettlements)
@@ -299,12 +325,28 @@ export async function listCampaignSellerSalesSummaries(
         settled: row.order.sellerSettlementStatus === "SETTLED" || row.settlementLink !== null,
       })),
     );
-    return { sales, orderCount, ...collections };
+
+    // BR-COL-002 "online-paid sales" — the authoritative payment per
+    // order (never a raw count of attempts/retries), restricted to
+    // TWINT/CARD orders whose authoritative attempt actually succeeded.
+    const onlinePaidOrders = groupRows.filter((row) => {
+      if (row.order.status === "CANCELLED") return false;
+      const authoritative = selectAuthoritativePaymentForExport(
+        allPaymentsByOrderId.get(row.order.id) ?? [],
+      );
+      return (
+        authoritative?.status === "SUCCEEDED" &&
+        (authoritative.method === "TWINT" || authoritative.method === "CARD")
+      );
+    });
+    const onlinePaidSales = sumMoney(onlinePaidOrders.map((row) => row.order.totalAmount as Money));
+
+    return { sales, orderCount, onlinePaidSales, ...collections };
   }
 
   const summaries: CampaignSellerSalesSummaryRow[] = participants.map((participant) => {
     const groupRows = ordersByGroupKey.get(participant.sellerId) ?? [];
-    const { sales, orderCount, stillToCollect, collected, stillToRemit } =
+    const { sales, orderCount, onlinePaidSales, stillToCollect, collected, stillToRemit } =
       summarizeGroup(groupRows);
     const target = money(participant.targetAmount ?? campaign.defaultSellerTargetAmount ?? 0);
     const progress = calculateSellerProgress(sales, target);
@@ -317,6 +359,7 @@ export async function listCampaignSellerSalesSummaries(
       sales,
       target,
       progressPercentage: progress.percentage,
+      onlinePaidSales,
       stillToCollect,
       collected,
       stillToRemit,
@@ -326,7 +369,7 @@ export async function listCampaignSellerSalesSummaries(
 
   const unassignedRows = ordersByGroupKey.get(UNASSIGNED_KEY) ?? [];
   if (unassignedRows.length > 0) {
-    const { sales, orderCount, stillToCollect, collected, stillToRemit } =
+    const { sales, orderCount, onlinePaidSales, stillToCollect, collected, stillToRemit } =
       summarizeGroup(unassignedRows);
     summaries.push({
       sellerId: null,
@@ -335,6 +378,7 @@ export async function listCampaignSellerSalesSummaries(
       sales,
       target: null,
       progressPercentage: null,
+      onlinePaidSales,
       stillToCollect,
       collected,
       stillToRemit,

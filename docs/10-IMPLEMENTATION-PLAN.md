@@ -1579,6 +1579,59 @@ nav link; added one, since Gate 13B already touches the nav area.
 
 ---
 
+## Phase 13 Gate 13C implementation (adopted) — `/admin/statistiques`
+
+Implements the full §50 statistics list: total revenue, orders,
+bottles, average order value (reusing Gate 13B's `buildPrimaryKpis()`
+unchanged), sales by wine, sales by bundle, sales by seller, online vs
+seller payment (reusing Gate 13B's `buildPaymentKpis()` unchanged),
+TWINT vs card, and seller target progress. Also delivers BR-COL-002's
+previously-deferred "online-paid sales" per seller.
+
+Campaign selection deliberately covers ACTIVE ∪ CLOSED ∪ ARCHIVED (not
+ACTIVE ∪ CLOSED like `/admin`/`/admin/preparation`/`/admin/exports`) —
+a new, purpose-specific resolver pair
+(`listStatisticsRelevantCampaigns()`/`resolveDefaultStatisticsCampaign()`
+in `src/infrastructure/campaign/campaigns.ts`, plus
+`resolve-requested-statistics-campaign.ts`), justified directly by
+BR-CAM-003. This is the first page in the application to actually
+deliver on that requirement for ARCHIVED campaigns specifically.
+
+New: `src/infrastructure/statistics/statistics.ts`
+(`getCampaignItemSalesBreakdown`), `src/domain/statistics/*`
+(`buildWineSalesTable`, `buildBundleSalesTable`,
+`buildTwintVsCardBreakdown`, each with its own test file),
+`src/app/admin/(protected)/statistiques/page.tsx`,
+`src/infrastructure/database/integration/statistics.db.test.ts`,
+`e2e/statistics.spec.ts`. Modified:
+`src/infrastructure/settlements/settlements.ts`
+(`listCampaignSellerSalesSummaries` gained `onlinePaidSales`),
+`src/infrastructure/campaign/campaigns.ts` (new resolver functions),
+`src/app/admin/(protected)/layout.tsx` (nav link, between Préparation
+and Exports).
+
+The wine table's bottles-vs-direct-revenue distinction (see
+docs/06-ADMIN-SPEC.md §50's implementation note) and the refund-
+semantics decision (no blanket `REFUNDED == CANCELLED` rule invented —
+see docs/05-ARCHITECTURE.md) were both explicit, approved product
+decisions, not implementation shortcuts.
+
+No migration. No new dependency. No chart.
+
+Verified: `pnpm test` (615/615 across 64 files, +13 new), `pnpm test:db`
+(288/288 across 26 files, +13 new), `pnpm test:e2e` (all passing,
++4 new statistics scenarios, all pre-existing specs unaffected),
+`pnpm build`, `pnpm lint`, `pnpm format` all clean (only the
+pre-existing Gate 11C `_prevState`/`_formData` warnings remain).
+
+**Phase 13 is now COMPLETE.** Every item in §78's goal list is
+delivered across Gate 13B (`/admin`) and Gate 13C
+(`/admin/statistiques`), and §81's completion criterion — the dashboard
+answers the main operational questions defined in
+`06-ADMIN-SPEC.md` — is met by the two pages together.
+
+---
+
 # 82. Phase 14 — Security and resilience hardening
 
 ## Goal
@@ -2145,7 +2198,7 @@ Application implementation:
     Phase 10  Online payments                      COMPLETE
     Phase 11  Transactional email                   COMPLETE
     Phase 12  Documents and exports                  COMPLETE
-    Phase 13  Statistics and dashboard        IN PROGRESS (Gate 13B done, Gate 13C pending)
+    Phase 13  Statistics and dashboard        COMPLETE
     Phase 14+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
