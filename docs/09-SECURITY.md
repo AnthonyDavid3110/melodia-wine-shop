@@ -1111,6 +1111,25 @@ Frame protection should also be considered.
 
 Exact configuration depends on payment integration and external assets.
 
+> **Gate 14C implementation note (adopted) — HTTP security headers:**
+> closes the Gate 14A MEDIUM finding (security headers/CSP absent).
+> `src/lib/security-headers.ts` centralizes a small, pure, unit-tested
+> policy; `next.config.ts`'s `headers()` applies it globally
+> (`source: '/(.*)'`) to every response, including the Proxy-issued
+> unauthenticated `/admin` redirect (verified). `Strict-Transport-
+> Security` is deliberately **not** set here — Vercel already forwards
+> HTTP to HTTPS (308) and applies HSTS automatically on both
+> `.vercel.app` and custom domains (verified against
+> vercel.com/docs/cdn-security during Step 1), so an application-level
+> duplicate would be redundant, not protective. The remaining four
+> headers (`X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-
+> origin-when-cross-origin`, `Permissions-Policy: camera=(),
+> microphone=(), geolocation=()`, `X-Frame-Options: DENY`) and the CSP
+> are fully application-configured, since Vercel does not set these
+> automatically. No CSP violation reporting (`report-to`/`report-uri`)
+> is configured — that would add a new PII-adjacent telemetry surface
+> (client URLs/IPs) beyond this gate's narrow scope.
+
 ---
 
 # 51. Content Security Policy
@@ -1129,6 +1148,47 @@ without becoming:
 
 Do not weaken CSP globally simply to solve one integration issue.
 
+> **Gate 14C implementation note (adopted):** static CSP via
+> `next.config.ts` (no nonces) — approved direction, since this app has
+> no browser-rendered `dangerouslySetInnerHTML`, no third-party
+> analytics/tracking, self-hosted fonts (`next/font`, no external
+> runtime font origin), same-origin-only Better Auth traffic, a
+> server-side-only Saferpay API client, and a Saferpay Payment Page
+> that is a top-level browser redirect (`window.location.assign`),
+> never an iframe embed. **Accepted limitation, stated honestly:** the
+> static approach requires `'unsafe-inline'` for `script-src`/
+> `style-src` (Next.js's own documented "Without Nonces" pattern), so
+> — unlike a nonce/hash-based strict CSP — it does **not** block an
+> inline `<script>` injected by a future XSS bug; React's default JSX
+> escaping remains the primary XSS defense, and this CSP is defense-in-
+> depth for clickjacking, MIME-sniffing, and unauthorized resource
+> origins, not an equivalent substitute for a strict CSP. A nonce-based
+> CSP remains a possible future hardening step — it was not adopted
+> here because it would force every page to dynamic rendering,
+> disabling this app's existing static optimization (`/design`,
+> `/design-system`, `/design/*`) for no demonstrated V1 threat
+> justifying that cost. Production CSP: `default-src 'self'; script-src
+> 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src
+> 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src
+> 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`.
+> `'unsafe-eval'` is added to `script-src` only in development
+> (`NODE_ENV === "development"`, matching Next's own documented reason:
+> React's dev-mode error-stack reconstruction) — verified absent from
+> the production policy by a unit test. `img-src` is deliberately
+> scoped to same-origin + `data:`/`blob:` only: every seeded product/
+> bundle currently has `imageUrl = null` (rendering the
+> `PlaceholderBottle` fallback), and while the admin product/bundle
+> forms' own Zod validation requires an absolute `http(s)://` URL for
+> `imageUrl`, `next.config.ts` has no `images.remotePatterns`
+> configured, so `next/image` already rejects any such URL today
+> regardless of this CSP — a pre-existing, untested, unrelated gap
+> tracked separately, not fixed by Gate 14C. **`img-src` will need
+> revisiting once TBD-ARCH-006 (image storage provider) is resolved** —
+> this CSP does not attempt to anticipate that choice. Saferpay's API
+> origin is intentionally absent from `connect-src`/`frame-src`: the
+> browser never talks to it directly (server-side-only client, top-
+> level-redirect Payment Page).
+
 ---
 
 # 52. HTTPS
@@ -1141,6 +1201,13 @@ TLS certificate management should be handled by the hosting platform.
 
 Do not serve authentication, checkout or payment flows over plaintext
 HTTP.
+
+> **Gate 14C verification note (adopted):** confirmed against Vercel's
+> own current official documentation (vercel.com/docs/cdn-security)
+> that this requirement is already fully satisfied by the platform —
+> "The CDN forwards HTTP requests to HTTPS with a 308 status code" and
+> "Vercel applies HSTS automatically on `.vercel.app` domains and
+> custom domains." No application code was added to duplicate this.
 
 ---
 
@@ -1778,7 +1845,11 @@ Before launch verify:
 
     [ ] File uploads validated
 
-    [ ] Security headers reviewed
+    [x] Security headers reviewed — Phase 14 Gate 14C, static CSP +
+        X-Content-Type-Options/Referrer-Policy/Permissions-Policy/
+        X-Frame-Options implemented, unit + E2E tested, verified via a
+        real browser with zero CSP console violations across public/
+        admin/interactive flows (§50/§51 above)
 
     [ ] Error pages do not expose internals
 
@@ -1994,10 +2065,19 @@ remaining gap this TBD named — is now resolved by Phase 14 Gate 14B's
 own PostgreSQL-backed fixed-window limiter (`checkout_rate_limits`
 table). See §40 above for the full design.
 
-## TBD-SEC-004 — Security headers
+## TBD-SEC-004 — Security headers — RESOLVED (Phase 14 Gate 14C)
 
 Finalize CSP and related headers after external providers and fonts are
 known.
+
+**Resolution:** external providers and fonts are now known (Saferpay —
+server-side API + top-level-redirect Payment Page, never browser-called;
+fonts self-hosted via `next/font`; Better Auth same-origin only; no
+analytics/tracking). Static CSP + the four Vercel-doesn't-auto-set
+headers implemented and verified — see §50/§51 above for the adopted
+policy and its accepted static-vs-nonce limitation. `img-src` remains
+intentionally narrow pending TBD-ARCH-006 (image storage provider,
+still unresolved).
 
 ## TBD-SEC-005 — Data retention
 

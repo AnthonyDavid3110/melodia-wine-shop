@@ -1738,7 +1738,48 @@ create-order.ts` (new `orderExistsForIdempotencyKey()` pre-check),
 `playwright.config.ts` (fixed test-only `RATE_LIMIT_SECRET`). See
 `docs/05-ARCHITECTURE.md` for the full architecture.
 
-**Phase 14 is NOT complete.** Gates 14C–14G remain pending.
+## Phase 14 Gate 14C — HTTP security headers/CSP (verified complete)
+
+Closes the Gate 14A MEDIUM finding (security headers/CSP absent) and
+resolves TBD-SEC-004. Static CSP via `next.config.ts`'s `headers()`
+(no nonces — approved direction; the app has no browser-rendered
+`dangerouslySetInnerHTML`, no third-party analytics, self-hosted fonts,
+same-origin auth traffic, and a Saferpay Payment Page that's a
+top-level redirect, never an iframe). Adopted policy: `default-src
+'self'; script-src 'self' 'unsafe-inline'` (+ `'unsafe-eval'` in
+development only); `style-src 'self' 'unsafe-inline'; img-src 'self'
+data: blob:; font-src 'self'; connect-src 'self'; object-src 'none';
+base-uri 'self'; form-action 'self'; frame-ancestors 'none'` — plus
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: strict-origin-when-cross-origin`,
+`Permissions-Policy: camera=(), microphone=(), geolocation=()`.
+`Strict-Transport-Security` deliberately not set — Vercel already
+applies HSTS and forces HTTPS on custom domains (verified against
+current official Vercel documentation).
+
+Accepted, honestly-documented limitation: `'unsafe-inline'` is weaker
+than a nonce/hash-based strict CSP against inline-script XSS; nonces
+were rejected because they'd force every page to dynamic rendering,
+removing this app's existing static optimization for no demonstrated
+V1 threat. `img-src` stays same-origin-only pending TBD-ARCH-006
+(image storage provider, still unresolved) — a pre-existing,
+untested gap was found where the admin image-URL forms validate an
+absolute `http(s)://` URL but `next.config.ts` has no
+`images.remotePatterns`, so `next/image` already rejects any such URL
+today regardless of this CSP; not fixed here, flagged for separate
+attention.
+
+New: `src/lib/security-headers.ts` (pure, unit-tested policy).
+Modified: `next.config.ts` (`headers()` wiring). New tests:
+`src/lib/security-headers.test.ts` (17 unit tests), `e2e/security-
+headers.spec.ts` (7 E2E tests, public + admin routes, no DB state).
+Verified via a real browser across public catalogue, cart, checkout,
+design-system interactive primitives, and admin routes — zero CSP
+console violations. See `docs/05-ARCHITECTURE.md` and
+`docs/09-SECURITY.md` §50/§51/§52 for the full architecture and
+rationale.
+
+**Phase 14 is NOT complete.** Gates 14D–14G remain pending.
 
 ---
 
@@ -2247,7 +2288,7 @@ Application implementation:
     Phase 11  Transactional email                   COMPLETE
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
-    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B done, 14C-14G pending)
+    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B/14C done, 14D-14G pending)
     Phase 15+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

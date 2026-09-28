@@ -1657,6 +1657,29 @@ only — no existing commercial table modified).
 
 ---
 
+## Phase 14 Gate 14C implementation (adopted) — HTTP security headers / CSP
+
+Closes the Gate 14A MEDIUM finding (security headers/CSP absent) and
+resolves TBD-SEC-004. Configuration-only gate, no new runtime dependency,
+no migration, no persistent state.
+
+`src/lib/security-headers.ts` exports `buildContentSecurityPolicy(isDevelopment)`
+and `getSecurityHeaders(isDevelopment)` — small, pure, unit-tested
+functions. `next.config.ts`'s `headers()` applies the result globally
+(`source: '/(.*)'`), including to the Proxy-issued unauthenticated
+`/admin` redirect (verified via a real request).
+
+**Static CSP, not nonce-based** (see `docs/09-SECURITY.md` §51 for the
+full rationale and the accepted `'unsafe-inline'` limitation this
+implies). `Strict-Transport-Security` is not set by this application —
+Vercel applies HSTS and the HTTP→HTTPS redirect automatically on custom
+domains, verified against current official Vercel documentation.
+
+No CSP violation-reporting endpoint (`report-to`/`report-uri`) — out of
+scope, would add a new PII-adjacent telemetry surface.
+
+---
+
 # 36. Domain layer
 
 Business rules should not live exclusively inside React components.
