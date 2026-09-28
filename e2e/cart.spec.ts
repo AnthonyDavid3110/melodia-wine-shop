@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 6: browser coverage for the customer cart against the real
 // seeded catalog the dev server (playwright.config.ts's webServer)

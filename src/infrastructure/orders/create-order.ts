@@ -83,6 +83,29 @@ function isUniqueViolation(error: unknown, constraint: string): boolean {
 }
 
 /**
+ * Cheap pre-check (Phase 14 Gate 14B, approved Step 1 §13) — a single
+ * indexed read on the same `idempotencyKey` column `createOrder()`
+ * itself looks up. Lets a caller decide NOT to consume rate-limit quota
+ * for a legitimate retry of an already-persisted key, before ever
+ * calling `createOrder()`. This is an optimization, not a concurrency
+ * guarantee: two simultaneous requests for the same brand-new key may
+ * both observe "not found" here and both consume a rate-limit unit —
+ * `createOrder()`'s own advisory lock + unique constraint remain the
+ * sole correctness boundary for "only one Order is ever created",
+ * exactly as before this gate.
+ */
+export async function orderExistsForIdempotencyKey(
+  idempotencyKey: string,
+  dbHandle: Pick<typeof db, "select"> = db,
+): Promise<boolean> {
+  const [existing] = await dbHandle
+    .select({ id: orders.id })
+    .from(orders)
+    .where(eq(orders.idempotencyKey, idempotencyKey));
+  return existing !== undefined;
+}
+
+/**
  * The ONE authoritative order-creation pipeline (Phase 7,
  * docs/05-ARCHITECTURE.md §20, docs/10 §48 "SAME order-creation core"
  * for ONLINE and MANUAL alike). Every browser/admin-submitted price,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 5 Gate 2A: focused browser coverage for the new Product and
 // Campaign master-data admin UI — real form submission, real server

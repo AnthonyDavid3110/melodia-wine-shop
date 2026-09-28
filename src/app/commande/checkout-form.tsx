@@ -122,7 +122,7 @@ export function CheckoutForm({
       return;
     }
 
-    // cart-error or generic error
+    // cart-error, generic error, or rate-limited (Phase 14 Gate 14B) — all carry a plain French message
     setCartError(result.message);
   }
 

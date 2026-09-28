@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 7: browser coverage for the real public checkout flow against
 // the shared seeded campaign/products the dev server (playwright.config.ts's

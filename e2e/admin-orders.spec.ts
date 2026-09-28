@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 7: browser coverage for admin order management — manual order
 // creation (through the SAME order-creation core as public checkout),

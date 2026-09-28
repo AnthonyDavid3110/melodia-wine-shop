@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 10 Gate 10B: browser coverage for the online (Saferpay) payment
 // flow, driven entirely through the double-gated fake test provider

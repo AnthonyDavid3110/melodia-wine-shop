@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 11 Gate 11C: browser coverage for the admin manual resend
 // action, driven entirely through the double-gated fake email provider

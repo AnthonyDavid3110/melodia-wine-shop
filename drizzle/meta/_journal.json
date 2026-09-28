@@ -43,6 +43,13 @@
       "when": 1789999263929,
       "tag": "0005_equal_lily_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790504489963,
+      "tag": "0006_medical_elektra",
+      "breakpoints": true
     }
   ]
 }

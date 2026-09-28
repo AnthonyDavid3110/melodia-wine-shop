@@ -41,6 +41,15 @@ export default defineConfig({
     // those real credentials via Next.js's own .env.local handling and
     // Gate 11B's automatic dispatch would attempt real sends for every
     // e2e test that completes a checkout.
-    env: { E2E_FAKE_PAYMENT_PROVIDER: "true", E2E_FAKE_EMAIL_PROVIDER: "true" },
+    // Phase 14 Gate 14B: a fixed, non-secret, test-only value so the
+    // checkout/payment rate limiter (which throws if unconfigured,
+    // matching APP_BASE_URL's own "fail loudly at point of use" pattern)
+    // works during e2e runs regardless of whether the developer's own
+    // .env.local happens to define one for local `pnpm dev` use.
+    env: {
+      E2E_FAKE_PAYMENT_PROVIDER: "true",
+      E2E_FAKE_EMAIL_PROVIDER: "true",
+      RATE_LIMIT_SECRET: "e2e-test-only-fixed-secret-never-used-in-production",
+    },
   },
 });

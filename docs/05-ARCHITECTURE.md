@@ -1572,6 +1572,91 @@ No migration. No new dependency. No chart.
 
 ---
 
+## Phase 14 Gate 14B implementation (adopted) — checkout/payment rate limiting
+
+Closes the Gate 14A HIGH finding: public checkout and payment-initiation
+had no rate limiting at all, and the client-generated checkout
+idempotency key only protects against a *retried* submission, not a
+scripted flood of *fresh* keys.
+
+**Architecture**: a small PostgreSQL-backed fixed-window limiter —
+deliberately not Redis/Upstash (a new external dependency this
+project's scale doesn't justify, per CLAUDE.md §38/§46) and not an
+in-memory/process-local counter (ineffective on Vercel's stateless,
+horizontally-scaled serverless runtime; a counter in one warm lambda
+instance is invisible to every other concurrent invocation). One new
+table, `checkout_rate_limits` (`src/infrastructure/database/schema/
+rate-limits.ts`) — identity hash, action, window start, count; a
+composite unique constraint over all three of the first fields is the
+`ON CONFLICT` target for `consumeRateLimit()`'s atomic
+`INSERT ... ON CONFLICT DO UPDATE ... RETURNING count`
+(`src/infrastructure/rate-limit/rate-limit.ts`) — the exact idiom this
+codebase already uses for `reserveOrderNumber()`
+(`order-number-counter.ts`): PostgreSQL's own row-level locking on the
+upsert target is the concurrency primitive, never a read-then-write
+pair. Retention: the fixed window itself makes expiry automatic (an old
+window's row is never addressed again); an opportunistic, deterministic
+cleanup `DELETE` (not probabilistic — keeps both the implementation and
+its tests simple) runs on every call, removing rows older than ~1 hour.
+
+**Identity**: `HMAC-SHA-256(RATE_LIMIT_SECRET, "melodia-rate-limit-v1:"
++ identityInput)` (`src/domain/rate-limit/rate-limit-identity.ts`) —
+irreversible, never the raw IP. A dedicated `RATE_LIMIT_SECRET`
+(`src/lib/env.ts`), not a reuse of `BETTER_AUTH_SECRET` (a distinct
+concern with its own rotation schedule). No trustworthy IP → the shared
+`"unknown"` fallback identity, never a client-asserted value — all such
+traffic shares one bounded quota rather than silently bypassing the
+limiter.
+
+**Client IP source** (`src/lib/rate-limit-client-ip.ts`, the one place
+in the codebase that reads a forwarding header for this purpose):
+verified against Vercel's own current official documentation
+(vercel.com/docs/headers/request-headers) before implementation, not
+assumed. Prefers `x-vercel-forwarded-for` (Vercel's own header,
+documented as robust even if a proxy is later added in front of this
+deployment) with `x-forwarded-for` as a documented-equivalent fallback
+— Vercel's docs state it "overwrite[s]" this header and "do[es] not
+forward external IPs" by default, i.e. not attacker-spoofable on this
+project's deployment shape (no Enterprise "Trusted Proxy" feature in
+use).
+
+**Three independent buckets** (`src/infrastructure/rate-limit/
+policies.ts`): order creation (8/10min), online-payment initialization
+(5/10min — shared verbatim by the checkout-path Initialize call and the
+explicit retry action, since both are the identical threat), non-
+terminal status polling (25/1min — only consulted while the payment
+isn't already terminal, preserving `confirmOnlinePayment()`'s existing
+cheap local short-circuit for a resolved payment).
+
+**Idempotency ordering**: a cheap pre-check
+(`orderExistsForIdempotencyKey()`, `create-order.ts`) runs before the
+order-creation bucket is ever consulted — a retry of an already-
+persisted key never consumes quota, only a genuinely new key does. This
+is an optimization, not a second concurrency guarantee: two simultaneous
+requests for the same brand-new key may both consume a rate-limit unit
+before `createOrder()`'s own existing advisory-lock + unique-constraint
+correctness boundary serializes them — that boundary is unchanged by
+this gate.
+
+**Provider callbacks excluded by construction**: the Saferpay
+`NotifyUrl` route lives in a completely separate file/entry point (`src/
+app/api/payments/saferpay/notify/[token]/route.ts`) that this gate never
+touches — provider-to-server callbacks are never IP-rate-limited as if
+they were customer traffic.
+
+**Deliberately not implemented**: a secondary per-recipient-email
+bucket — a tight recipient-specific quota could itself be weaponized to
+deny a real customer's order, so the approved design closes the
+confirmed source-based abuse vector without introducing that new one. A
+genuinely distributed (many-IP) attack is explicitly out of scope for
+an application-level limiter — documented as a platform/CDN-level
+concern, not claimed as solved.
+
+No new runtime dependency. One additive migration (`checkout_rate_limits`
+only — no existing commercial table modified).
+
+---
+
 # 36. Domain layer
 
 Business rules should not live exclusively inside React components.

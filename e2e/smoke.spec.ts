@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 0 smoke test: verifies the app boots and serves a page. The
 // real campaign homepage (Phase 4, e2e/public-catalog.spec.ts) has its

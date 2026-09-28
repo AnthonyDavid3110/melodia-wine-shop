@@ -829,6 +829,36 @@ shared mobile networks.
 
 Exact implementation depends on deployment architecture.
 
+> **Gate 14B implementation note (adopted) — checkout/payment rate
+> limiting:** closes the Gate 14A HIGH finding (unauthenticated
+> checkout/payment-initiation abuse). PostgreSQL-backed fixed-window
+> limiter (`checkout_rate_limits` table, one additive migration) — no
+> Redis/Upstash, no in-memory limiter (would be ineffective on Vercel's
+> stateless serverless runtime). Three independent buckets: order
+> creation (8/10min), online-payment initialization (5/10min, shared by
+> the initial checkout call and the explicit retry action), non-terminal
+> status polling (25/1min, only consulted while the payment isn't
+> already terminal). Identity is `HMAC-SHA-256(RATE_LIMIT_SECRET,
+> "melodia-rate-limit-v1:" + normalized-client-IP)` — the raw IP is
+> never persisted or logged; a shared `"unknown"` fallback identity is
+> used when no trustworthy IP can be derived, never a client-asserted
+> value. Client IP source verified against Vercel's own current official
+> documentation (vercel.com/docs/headers/request-headers): prefers
+> `x-vercel-forwarded-for` (Vercel's own, robust even behind a future
+> additional proxy) with `x-forwarded-for` as a documented-equivalent
+> fallback — both are Vercel-overwritten and not attacker-spoofable on
+> this project's deployment shape (no "Trusted Proxy" Enterprise
+> feature in use). The existing checkout idempotency mechanism remains
+> the sole correctness boundary for "only one Order is ever created" —
+> the rate limiter only decides whether a **new** idempotency key gets
+> to try at all; a retry of an already-persisted key never consumes
+> quota. Deliberately **no** secondary customer-email bucket — a
+> recipient-specific quota could itself be weaponized to deny a real
+> customer service, so this closes the confirmed source-based abuse
+> vector without claiming to solve a genuinely distributed (many-IP)
+> attack, which stays a platform/CDN-level concern. See
+> `05-ARCHITECTURE.md` for the full architecture.
+
 ---
 
 # 41. Authentication brute force
@@ -1910,6 +1940,14 @@ Use managed platform security where appropriate.
   organisation identity is public information, hardcoded, never an
   environment variable. No VAT field exists anywhere in the model (ECM
   is not VAT-registered). See §48 above.
+- DECIDED (Phase 14 Gate 14B): checkout/payment-initiation/status-
+  polling rate limiting closes the Gate 14A HIGH finding. PostgreSQL-
+  backed, three independent buckets, `HMAC-SHA-256` opaque identity —
+  never the raw IP — with a dedicated `RATE_LIMIT_SECRET`. No secondary
+  per-recipient-email bucket (would itself be weaponizable against a
+  real customer). Explicitly not a defence against a distributed
+  many-IP attack — that remains a platform/CDN-level concern. See §40
+  above.
 
 ---
 
@@ -1941,7 +1979,7 @@ MFA UI exists. Revisit before production launch per the original
 recommendation in this section; adding it later means installing the
 plugin and its schema, not building anything custom.
 
-## TBD-SEC-003 — Rate limiting — RESOLVED for authentication (Phase 3)
+## TBD-SEC-003 — Rate limiting — RESOLVED (Phase 3 authentication; Phase 14 Gate 14B checkout/payment)
 
 Better Auth's built-in rate limiter, `storage: "database"`
 (`auth_rate_limits` table) — verified against the real table, not
@@ -1949,8 +1987,12 @@ assumed (Gate 2B integration test forces a burst of sign-in attempts
 through the real limiter and confirms both the 429 response and the
 persisted row). Default rule for `/sign-in*`, `/sign-up*`,
 `/change-password*`, `/change-email*`: 3 requests / 10s window (Better
-Auth's own built-in default, not project-specific tuning). Checkout and
-payment-initiation rate limiting remains TBD (Phase 6/10 scope).
+Auth's own built-in default, not project-specific tuning).
+
+Checkout/payment-initiation/status-polling rate limiting — the
+remaining gap this TBD named — is now resolved by Phase 14 Gate 14B's
+own PostgreSQL-backed fixed-window limiter (`checkout_rate_limits`
+table). See §40 above for the full design.
 
 ## TBD-SEC-004 — Security headers
 

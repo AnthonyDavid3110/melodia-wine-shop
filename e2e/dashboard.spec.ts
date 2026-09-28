@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 13 Gate 13B: browser coverage for the operational `/admin`
 // dashboard — real page load, KPI/alert/recent-orders rendering against

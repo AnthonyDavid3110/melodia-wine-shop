@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 9: browser coverage for the physical preparation/fulfilment
 // workflow — wine requirements, seller grouping, unassigned orders,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 8: browser coverage for the offline money flow — mark customer
 // payment received, then settle a seller's collected orders. Manual

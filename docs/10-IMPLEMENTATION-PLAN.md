@@ -1694,6 +1694,54 @@ known critical gaps.
 
 ---
 
+## Phase 14 Gate 14A — full security & resilience audit (verified complete)
+
+A full read-only audit against every requirement area named in this
+phase — authentication, authorization/IDOR, validation, price/order
+integrity, payment security, offline settlement, CSRF, XSS/content-
+injection, redirects, security headers, secrets, logging/PII, CSV, PDF,
+email, uploads, dependencies, error handling/resilience, DB concurrency,
+data retention, monitoring, CI — found **no CRITICAL findings and
+exactly one HIGH finding**: no rate limiting on public checkout/
+payment-initiation. Two MEDIUM findings (security headers/CSP absent;
+fulfilment-transition concurrency has no DB-level backstop). See
+`docs/09-SECURITY.md` for the full requirements matrix and prioritized
+findings. Approved direction: Gate 14B (rate limiting) → 14C (headers/
+CSP) → 14D (fulfilment concurrency) → 14E (formal abuse tests) → 14F
+(CI) → 14G (checklist/docs, Phase 14 completion). MFA deferred for V1;
+monitoring/error tracking deferred to Phase 15.
+
+## Phase 14 Gate 14B — checkout/payment rate limiting (verified complete)
+
+Closes the Gate 14A HIGH finding. PostgreSQL-backed fixed-window
+limiter, three independent buckets (order creation 8/10min, online-
+payment initialization 5/10min, non-terminal status polling 25/1min),
+opaque `HMAC-SHA-256` identity (never the raw IP), dedicated
+`RATE_LIMIT_SECRET`. Client-IP trust model verified against Vercel's own
+current official documentation before implementation (prefers
+`x-vercel-forwarded-for`, falls back to `x-forwarded-for` — both
+Vercel-overwritten, not attacker-spoofable on this project's deployment
+shape). No secondary per-recipient-email bucket (would itself be
+weaponizable against a real customer) — explicitly not a defence
+against a distributed many-IP attack, documented as a platform/CDN-level
+concern. The existing checkout idempotency mechanism remains the sole
+correctness boundary for "only one Order is ever created" — the limiter
+only decides whether a genuinely new idempotency key gets to try at all.
+
+New: `src/domain/rate-limit/rate-limit-identity.ts`,
+`src/infrastructure/rate-limit/{rate-limit,policies,current-identity}.ts`,
+`src/lib/rate-limit-client-ip.ts`, one additive migration
+(`checkout_rate_limits`). Modified: `src/app/commande/actions.ts`,
+`src/app/commande/retour/actions.ts`, `src/app/commande/checkout-form.tsx`,
+`src/lib/env.ts`, `.env.example`, `src/infrastructure/orders/
+create-order.ts` (new `orderExistsForIdempotencyKey()` pre-check),
+`playwright.config.ts` (fixed test-only `RATE_LIMIT_SECRET`). See
+`docs/05-ARCHITECTURE.md` for the full architecture.
+
+**Phase 14 is NOT complete.** Gates 14C–14G remain pending.
+
+---
+
 # 86. Phase 15 — Production preparation
 
 ## Goal
@@ -2199,7 +2247,8 @@ Application implementation:
     Phase 11  Transactional email                   COMPLETE
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
-    Phase 14+ Not started
+    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B done, 14C-14G pending)
+    Phase 15+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master

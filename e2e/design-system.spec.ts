@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 1 design-foundation checks: focused behaviour/accessibility smoke
 // tests for the interactive primitives demonstrated on /design-system.

@@ -3,11 +3,17 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/infrastructure/database/client";
 import { sellers } from "@/infrastructure/database/schema";
-import { createOrder } from "@/infrastructure/orders/create-order";
+import { createOrder, orderExistsForIdempotencyKey } from "@/infrastructure/orders/create-order";
 import { initiateOnlinePayment } from "@/infrastructure/payments/online-payments";
 import { orderCreationInputSchema } from "@/domain/orders/order-input-schema";
 import { formatSellerName } from "@/domain/sellers/format-seller-name";
 import { formatCHF, money } from "@/domain/money";
+import { getCurrentRateLimitIdentity } from "@/infrastructure/rate-limit/current-identity";
+import { consumeRateLimit } from "@/infrastructure/rate-limit/rate-limit";
+import { ORDER_CREATION, PAYMENT_INITIATION } from "@/infrastructure/rate-limit/policies";
+
+const RATE_LIMIT_MESSAGE =
+  "Trop de tentatives récentes. Veuillez réessayer dans quelques instants.";
 
 export interface CheckoutLineSummary {
   name: string;
@@ -30,7 +36,9 @@ export type CheckoutActionResult =
   | { status: "redirect"; redirectUrl: string }
   | { status: "validation-error"; fieldErrors: Partial<Record<string, string[]>> }
   | { status: "cart-error"; message: string }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string }
+  /** Phase 14 Gate 14B — source-based throttling, never a fatal-looking error (docs/09-SECURITY.md). */
+  | { status: "rate-limited"; message: string };
 
 /**
  * The ONE public entry point into the order-creation core (Phase 7).
@@ -50,6 +58,17 @@ export async function submitCheckoutAction(payload: unknown): Promise<CheckoutAc
 
   let result;
   try {
+    // Phase 14 Gate 14B: a legitimate retry of an already-persisted
+    // idempotency key never consumes new-order quota — only a
+    // genuinely NEW key reaches the rate limiter (approved Step 1 §13).
+    const alreadyExists = await orderExistsForIdempotencyKey(parsed.data.idempotencyKey);
+    if (!alreadyExists) {
+      const identity = await getCurrentRateLimitIdentity();
+      const { allowed } = await consumeRateLimit(identity, ORDER_CREATION);
+      if (!allowed) {
+        return { status: "rate-limited", message: RATE_LIMIT_MESSAGE };
+      }
+    }
     result = await createOrder(parsed.data, { type: "SYSTEM" }, "ONLINE");
   } catch {
     // Never leak SQL/stack traces to the customer (docs/09-SECURITY.md §39).
@@ -87,6 +106,20 @@ export async function submitCheckoutAction(payload: unknown): Promise<CheckoutAc
 
   if (parsed.data.paymentMethod === "TWINT" || parsed.data.paymentMethod === "CARD") {
     try {
+      // Phase 14 Gate 14B: only consume bucket B when an Initialize
+      // call is actually about to happen — never merely because an
+      // online method was selected (approved Step 1 §14). Gated on
+      // `"created"` only: an idempotent `"existing"` result never
+      // reaches here as a NEW attempt in the first place, since the
+      // browser already navigated away on the original attempt.
+      if (result.status === "created") {
+        const identity = await getCurrentRateLimitIdentity();
+        const { allowed } = await consumeRateLimit(identity, PAYMENT_INITIATION);
+        if (!allowed) {
+          // The Order already exists and remains valid/retryable — never rolled back merely because initialization was throttled.
+          return { status: "rate-limited", message: RATE_LIMIT_MESSAGE };
+        }
+      }
       const { redirectUrl } = await initiateOnlinePayment(
         result.order.id,
         parsed.data.paymentMethod,

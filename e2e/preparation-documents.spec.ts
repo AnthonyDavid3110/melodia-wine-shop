@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 12 Gate 12B: browser coverage for the authenticated preparation
 // PDF downloads (individual order + seller). Mirrors

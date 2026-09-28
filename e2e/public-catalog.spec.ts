@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 4 Gate 2: focused browser coverage for the real public catalog
 // against the same local Postgres the dev server (playwright.config.ts's

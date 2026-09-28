@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./support/fixtures";
 
 // Phase 3 Gate 2B: focused browser coverage for the real admin
 // login/logout flow, against the same local Postgres the dev server

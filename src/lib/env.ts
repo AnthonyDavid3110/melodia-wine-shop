@@ -140,6 +140,19 @@ export const serverSchema = z.object({
    * Optional/asserted-at-use, same pattern as `RESEND_API_KEY` above.
    */
   EMAIL_FROM: z.string().optional(),
+
+  /**
+   * Dedicated HMAC key for the checkout/payment rate limiter (Phase 14
+   * Gate 14B, docs/09-SECURITY.md) — never reused from
+   * `BETTER_AUTH_SECRET`, which is a distinct concern with its own
+   * rotation schedule. Used only to derive an opaque, irreversible
+   * per-requester identity hash from a normalized IP address; the raw
+   * IP is never persisted or logged. Optional here for the same "don't
+   * break unrelated module loads" reason as every other secret above —
+   * `derive-rate-limit-identity.ts` asserts this is present at the
+   * point an identity is actually derived, never at module load time.
+   */
+  RATE_LIMIT_SECRET: z.string().optional(),
 });
 
 /**
@@ -181,6 +194,7 @@ export const serverEnv = parseEnv(serverSchema, {
   APP_BASE_URL: process.env.APP_BASE_URL,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   EMAIL_FROM: process.env.EMAIL_FROM,
+  RATE_LIMIT_SECRET: process.env.RATE_LIMIT_SECRET,
 });
 
 export const publicEnv = parseEnv(publicSchema, {});
