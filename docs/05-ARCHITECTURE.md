@@ -1680,6 +1680,74 @@ scope, would add a new PII-adjacent telemetry surface.
 
 ---
 
+## Phase 14 Gate 14D implementation (adopted) — fulfilment concurrency
+
+Closes the Gate 14A MEDIUM finding ("fulfilment-transition concurrency
+has no DB-level backstop, only domain-code guards"). No new dependency,
+no migration, no persistent state.
+
+**Two distinct layers, deliberately kept separate**: the pre-existing
+plain `SELECT` + pure domain guard (`src/domain/orders/order-guards.ts`)
+remains business validation only — it produces the specific typed
+errors (not found, seller required, ordinary stale-page rejection) and
+is explicitly NOT the concurrency guarantee. The concurrency boundary
+is the authoritative conditional `UPDATE` that follows it, in the same
+transaction: `WHERE id = ? AND status = <exact expected source
+status>`, verified via `.returning()` — an empty result means the row's
+status changed after the initial read, and the transition never
+happened. Only once that `UPDATE` is confirmed to have matched a row
+does the corresponding `orderEvents` `INSERT` run, so a lost race can
+never produce a success event.
+
+`markOrderPrepared`/`handOrderToSeller`/`markOrderDelivered` each use
+one fixed expected source status (`CONFIRMED`/`PREPARED`/
+`HANDED_TO_SELLER` respectively — never a compound or `ANY(...)`
+predicate). `cancelOrder` — a direct competing writer on the same
+`orders.status` column, since cancellation is legal from any
+non-terminal fulfilment status (BR-STA-008) — uses the exact status its
+own initial read observed as the compare-and-set source, since
+cancellation has no single fixed source status.
+
+`bulkPrepareOrders`/`bulkHandOrdersToSeller`/`bulkMarkOrdersDelivered`
+apply the identical invariant as one bounded, single-statement `UPDATE
+... WHERE id IN (...) AND status = <exact expected source> RETURNING
+id` — never a per-row update loop. The returned row count is compared
+against the validated selection's count; any mismatch throws inside the
+transaction, which rolls back the entire batch (Drizzle's
+`dbHandle.transaction()` behavior on a thrown error) — no order in the
+batch is left transitioned and no event from that batch is written,
+preserving the pre-existing all-or-nothing semantics for a concurrency
+conflict exactly as it already applied to an ordinary validation
+failure.
+
+**Deliberately not used**: explicit `SELECT ... FOR UPDATE` row locking
+(a valid alternative already precedented elsewhere in this codebase —
+`applySuccessfulOnlinePayment()` — but not needed here since the
+conditional `UPDATE` alone provides the full invariant); an optimistic
+version/revision column (the existing `status` enum already serves as
+the compare-and-set condition); `SERIALIZABLE` isolation; any retry
+loop.
+
+`FulfilmentConflictError` (`src/infrastructure/orders/orders.ts`, to
+avoid a circular import with `fulfilment.ts`) is the one new typed
+error, narrowly scoped to exactly this case — a losing concurrent
+writer may also legitimately surface the pre-existing
+`InvalidFulfilmentTransitionError` instead, if its own initial read
+already observed the winner's committed state (see
+`docs/02-BUSINESS-RULES.md` BR-STA-009). Both are truthful rejections;
+neither ever reports a false success.
+
+True concurrency correctness is proven only by real, independently
+committed transactions (`src/infrastructure/database/integration/
+fulfilment-concurrency.db.test.ts`) — the existing `withRollback` test
+helper wraps everything in one outer transaction with nested SAVEPOINTs
+and cannot represent two genuinely concurrent, independently-committing
+transactions at all. These tests never mutate the real seeded ACTIVE
+campaign's status, mirroring `create-order-concurrency.db.test.ts`'s
+own established pattern.
+
+---
+
 # 36. Domain layer
 
 Business rules should not live exclusively inside React components.

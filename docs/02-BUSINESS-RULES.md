@@ -492,6 +492,27 @@ order that is `HANDED_TO_SELLER` or `DELIVERED` but not yet settled may
 still be reassigned; the admin UI shows a contextual warning in that
 case, but does not block the action.
 
+## BR-STA-009 — Fulfilment transitions are concurrency-safe at persistence level
+
+**Phase 14 Gate 14D addition:** if two operations concurrently compete to
+transition the same order from the same source status — including
+cancellation, which competes for the same status column as every
+fulfilment step — only one may persist successfully. A same-target
+concurrent transition (e.g. two simultaneous "mark prepared" attempts)
+is NOT treated as a second idempotent success; exactly one succeeds. A
+losing or stale concurrent attempt can never overwrite the winner, and
+one successful transition produces exactly one corresponding success
+event — never two, never zero.
+
+The losing attempt is always rejected truthfully, but which rejection it
+receives depends on timing, and both are correct: if its own validation
+observed the order's state before the winner committed, its
+authoritative write itself loses the race and it is told so directly;
+if its own validation only runs after the winner already committed, the
+ordinary invalid-transition check (BR-STA-006) may reject it first. In
+both cases the order was never left in a state that contradicts its own
+recorded history.
+
 ---
 
 # 16. Online checkout rules

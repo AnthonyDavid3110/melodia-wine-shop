@@ -67,6 +67,25 @@ export class OrderNotPayableError extends Error {
 }
 
 /**
+ * Phase 14 Gate 14D — the authoritative conditional UPDATE (`WHERE id = ?
+ * AND status = <status the transition was validated against>`) matched
+ * zero rows: the order's persisted `status` changed concurrently between
+ * this call's own initial read/validation and its write. Narrowly scoped
+ * to exactly that case — never thrown for not-found, missing seller, or
+ * an ordinary stale-page transition already caught by the initial
+ * validation (`InvalidFulfilmentTransitionError`/`OrderNotCancellableError`
+ * etc. keep covering those). Defined here (not in `fulfilment.ts`) so
+ * `cancelOrder` — a direct competing writer on the same `status` column,
+ * per the Gate 14A finding — can share it without a circular import.
+ */
+export class FulfilmentConflictError extends Error {
+  constructor() {
+    super("Cette commande vient d'être modifiée. Veuillez actualiser la page avant de réessayer.");
+    this.name = "FulfilmentConflictError";
+  }
+}
+
+/**
  * Admin order list (Phase 7 §17/docs/06-ADMIN-SPEC.md §8/§9) —
  * left-joined with Sellers so unassigned orders (`sellerId = null`)
  * still appear (BR-SEL-004), never silently dropped by an inner join.
@@ -303,6 +322,21 @@ export async function assignOrderSeller(
  * required for that case, never invented here (Phase 8 approved
  * decision #2). `canCancelOrder` is the single source of truth for this
  * rule, shared with the UI's own visibility check.
+ *
+ * Phase 14 Gate 14D: `cancelOrder` is a direct competing writer on the
+ * same `orders.status` column every fulfilment transition writes (the
+ * Gate 14A finding's most serious concrete race — cancellation is
+ * legal from any non-terminal fulfilment status, independent of
+ * fulfilment progress, per BR-STA-008). The authoritative UPDATE below
+ * is conditioned on `status` still equalling the EXACT value this call
+ * read and validated against (`existing.status`, whatever that was —
+ * not a fixed constant, since cancellation has no single expected
+ * source status) — if a concurrent fulfilment transition (or another
+ * cancellation attempt) already changed it, zero rows match and
+ * `FulfilmentConflictError` is thrown before any event is written. The
+ * initial `SELECT` above remains the source of the specific typed
+ * errors (already cancelled, not cancellable) — it is not itself the
+ * concurrency guarantee.
  */
 export async function cancelOrder(id: string, adminUserId: string, dbHandle: DbHandle = db) {
   return dbHandle.transaction(async (tx) => {
@@ -320,8 +354,11 @@ export async function cancelOrder(id: string, adminUserId: string, dbHandle: DbH
     const [updated] = await tx
       .update(orders)
       .set({ status: "CANCELLED", cancelledAt: new Date() })
-      .where(eq(orders.id, id))
+      .where(and(eq(orders.id, id), eq(orders.status, existing.status)))
       .returning();
+    if (!updated) {
+      throw new FulfilmentConflictError();
+    }
 
     await tx.insert(orderEvents).values({
       orderId: id,
@@ -330,7 +367,7 @@ export async function cancelOrder(id: string, adminUserId: string, dbHandle: DbH
       adminUserId,
     });
 
-    return updated!;
+    return updated;
   });
 }
 

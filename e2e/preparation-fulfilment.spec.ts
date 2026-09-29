@@ -305,3 +305,53 @@ test("a CLOSED campaign remains fully usable for preparation, handoff and delive
     await db.update(campaigns).set({ status: "ACTIVE" }).where(eq(campaigns.id, campaign.id));
   }
 });
+
+test("Phase 14 Gate 14D: a stale fulfilment action shows a clean French conflict message, never an unhandled crash", async ({
+  page,
+}) => {
+  await createAndLogInAsTestAdmin(page, "fulfilment-conflict-admin");
+  const orderUrl = await createManualOrder(page, testEmail("fulfilment-conflict"));
+
+  // Load the order-detail page (showing the CONFIRMED-era "Marquer
+  // comme préparée" button), then change the order's persisted status
+  // out from under it — simulating another admin having already acted
+  // on it a moment ago. This exercises the pre-existing, now-finally-
+  // displayed `InvalidFulfilmentTransitionError` typed-result path
+  // (Gate 14D's UX fix), not the new `FulfilmentConflictError` class
+  // itself: a real concurrent-transaction race is proven
+  // deterministically at the DB/integration level
+  // (fulfilment-concurrency.db.test.ts), not reproducible
+  // deterministically through two real browsers here without
+  // flakiness. Before this gate, the three single-order fulfilment
+  // Server Actions had no typed error handling at all, so this exact
+  // scenario previously crashed with an unhandled Server Action error
+  // instead of a clean message.
+  await page.goto(orderUrl, { waitUntil: "networkidle" });
+  await expect(page.getByRole("button", { name: "Marquer comme préparée" })).toBeVisible();
+
+  const orderIdMatch = orderUrl.match(/\/admin\/commandes\/([^/]+)$/);
+  const orderId = orderIdMatch?.[1];
+  if (!orderId) throw new Error(`could not extract order id from ${orderUrl}`);
+  await db
+    .update(orders)
+    .set({ status: "PREPARED", preparedAt: new Date() })
+    .where(eq(orders.id, orderId));
+
+  await page.getByRole("button", { name: "Marquer comme préparée" }).click();
+
+  // No unhandled crash / Next.js error digest page.
+  await expect(page.getByText(/Application error|digest/i)).not.toBeVisible();
+  await expect(
+    page.getByText("Cette commande n'est plus dans un état permettant cette action", {
+      exact: false,
+    }),
+  ).toBeVisible();
+
+  // The stale write never actually applied — status is still PREPARED
+  // (from the out-of-band update above), never re-transitioned, and no
+  // second ORDER_PREPARED event exists.
+  const [persisted] = await db.select().from(orders).where(eq(orders.id, orderId));
+  expect(persisted?.status).toBe("PREPARED");
+  const events = await db.select().from(orderEvents).where(eq(orderEvents.orderId, orderId));
+  expect(events.filter((e) => e.type === "ORDER_PREPARED")).toHaveLength(0);
+});

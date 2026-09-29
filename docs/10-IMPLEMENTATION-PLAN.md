@@ -1779,7 +1779,47 @@ console violations. See `docs/05-ARCHITECTURE.md` and
 `docs/09-SECURITY.md` §50/§51/§52 for the full architecture and
 rationale.
 
-**Phase 14 is NOT complete.** Gates 14D–14G remain pending.
+## Phase 14 Gate 14D — fulfilment concurrency (verified complete)
+
+Closes the Gate 14A MEDIUM finding ("fulfilment-transition concurrency
+has no DB-level backstop, only domain-code guards"). Every fulfilment
+transition (`markOrderPrepared`/`handOrderToSeller`/`markOrderDelivered`
+and their bulk equivalents) and `cancelOrder` — a direct competing
+writer on the same `orders.status` column — now use a conditional
+atomic `UPDATE ... WHERE id = ? AND status = <exact expected source>
+RETURNING ...` as the authoritative concurrency boundary, in the same
+transaction as the pre-existing initial `SELECT` + domain-guard
+validation (which remains business validation only, not the
+concurrency guarantee). A lost race throws a new typed
+`FulfilmentConflictError` before any event is written; a losing
+attempt may also legitimately surface the pre-existing
+`InvalidFulfilmentTransitionError` instead, depending on whether its
+own initial read happened before or after the winner committed — both
+are truthful rejections (docs/02-BUSINESS-RULES.md BR-STA-009). Bulk
+transitions remain one bounded, single-statement `UPDATE`, never a
+per-row loop; any mismatch between the validated selection and the
+conditional UPDATE's returned rows rolls back the entire batch.
+
+No `SELECT ... FOR UPDATE`, no version column, no `SERIALIZABLE`
+isolation, no retry loop, no migration, no new dependency.
+
+New: `src/infrastructure/database/integration/
+fulfilment-concurrency.db.test.ts` (5 tests, genuinely independent
+real-committed transactions — `withRollback` cannot represent this
+class of race). Modified: `src/infrastructure/fulfilment/fulfilment.ts`,
+`src/infrastructure/orders/orders.ts` (new `FulfilmentConflictError`),
+`src/app/admin/(protected)/commandes/[id]/actions.ts` (the three
+single-order fulfilment actions gained typed `{ formError }` results —
+previously unhandled), `src/app/admin/(protected)/commandes/[id]/
+fulfilment-section.tsx` (client component, `useActionState`),
+`src/app/admin/(protected)/preparation/actions.ts` (bulk actions' catch
+lists extended). New E2E coverage in `e2e/preparation-fulfilment.spec.ts`
+proving the stale-state UX no longer crashes unhandled; the true
+concurrency invariant is proven exclusively at the DB/integration
+level. See `docs/05-ARCHITECTURE.md` and `docs/09-SECURITY.md` (near
+§70) for the full architecture.
+
+**Phase 14 is NOT complete.** Gates 14E–14G remain pending.
 
 ---
 
@@ -2288,7 +2328,7 @@ Application implementation:
     Phase 11  Transactional email                   COMPLETE
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
-    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B/14C done, 14D-14G pending)
+    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B/14C/14D done, 14E-14G pending)
     Phase 15+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

@@ -9,6 +9,7 @@ import {
   bulkMarkOrdersDelivered,
   bulkPrepareOrders,
 } from "@/infrastructure/fulfilment/fulfilment";
+import { FulfilmentConflictError } from "@/infrastructure/orders/orders";
 
 export interface BulkFulfilmentState {
   formError?: string;
@@ -37,7 +38,8 @@ export async function bulkPrepareAction(
   } catch (error) {
     if (
       error instanceof EmptyFulfilmentSelectionError ||
-      error instanceof InvalidBulkFulfilmentSelectionError
+      error instanceof InvalidBulkFulfilmentSelectionError ||
+      error instanceof FulfilmentConflictError
     ) {
       return { formError: error.message };
     }
@@ -60,7 +62,8 @@ export async function bulkHandToSellerAction(
   } catch (error) {
     if (
       error instanceof EmptyFulfilmentSelectionError ||
-      error instanceof InvalidBulkFulfilmentSelectionError
+      error instanceof InvalidBulkFulfilmentSelectionError ||
+      error instanceof FulfilmentConflictError
     ) {
       return { formError: error.message };
     }
@@ -83,7 +86,8 @@ export async function bulkDeliverAction(
   } catch (error) {
     if (
       error instanceof EmptyFulfilmentSelectionError ||
-      error instanceof InvalidBulkFulfilmentSelectionError
+      error instanceof InvalidBulkFulfilmentSelectionError ||
+      error instanceof FulfilmentConflictError
     ) {
       return { formError: error.message };
     }

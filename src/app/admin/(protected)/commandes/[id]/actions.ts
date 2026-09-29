@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/dal";
 import { customerInfoSchema } from "@/domain/orders/order-input-schema";
 import {
+  FulfilmentConflictError,
   InvalidSellerAssignmentError,
   OrderAlreadyCancelledError,
   OrderNotCancellableError,
@@ -17,6 +18,8 @@ import {
   updateOrderCustomerInfo,
 } from "@/infrastructure/orders/orders";
 import {
+  InvalidFulfilmentTransitionError,
+  SellerRequiredForHandoffError,
   handOrderToSeller,
   markOrderDelivered,
   markOrderPrepared,
@@ -111,7 +114,8 @@ export async function cancelOrderAction(
     if (
       error instanceof OrderNotFoundError ||
       error instanceof OrderAlreadyCancelledError ||
-      error instanceof OrderNotCancellableError
+      error instanceof OrderNotCancellableError ||
+      error instanceof FulfilmentConflictError
     ) {
       return { formError: error.message };
     }
@@ -123,6 +127,10 @@ export async function cancelOrderAction(
   return {};
 }
 
+export interface FulfilmentActionState {
+  formError?: string;
+}
+
 /**
  * Phase 9 single-order fulfilment actions. Routine, reversible-in-
  * effect-only-forward operational steps (docs/06-ADMIN-SPEC.md §54) —
@@ -132,29 +140,79 @@ export async function cancelOrderAction(
  * these forms when the matching pure guard already agrees, so a thrown
  * error here means a genuine race/stale-page edge case rather than an
  * expected outcome.
+ *
+ * Phase 14 Gate 14D: now return a typed `{ formError }` result — the
+ * same shape `cancelOrderAction` above already uses — catching both the
+ * pre-existing stale-transition errors and the new
+ * `FulfilmentConflictError` (a genuine concurrent write, detected by
+ * the authoritative conditional UPDATE) rather than letting either
+ * propagate as an unhandled Server Action crash.
  */
-export async function markOrderPreparedAction(orderId: string) {
+export async function markOrderPreparedAction(orderId: string): Promise<FulfilmentActionState> {
   const admin = await requireAdmin();
-  await markOrderPrepared(orderId, admin.adminId);
+
+  try {
+    await markOrderPrepared(orderId, admin.adminId);
+  } catch (error) {
+    if (
+      error instanceof OrderNotFoundError ||
+      error instanceof InvalidFulfilmentTransitionError ||
+      error instanceof FulfilmentConflictError
+    ) {
+      return { formError: error.message };
+    }
+    throw error;
+  }
+
   revalidatePath(`/admin/commandes/${orderId}`);
   revalidatePath("/admin/commandes");
   revalidatePath("/admin/preparation");
+  return {};
 }
 
-export async function handOrderToSellerAction(orderId: string) {
+export async function handOrderToSellerAction(orderId: string): Promise<FulfilmentActionState> {
   const admin = await requireAdmin();
-  await handOrderToSeller(orderId, admin.adminId);
+
+  try {
+    await handOrderToSeller(orderId, admin.adminId);
+  } catch (error) {
+    if (
+      error instanceof OrderNotFoundError ||
+      error instanceof InvalidFulfilmentTransitionError ||
+      error instanceof SellerRequiredForHandoffError ||
+      error instanceof FulfilmentConflictError
+    ) {
+      return { formError: error.message };
+    }
+    throw error;
+  }
+
   revalidatePath(`/admin/commandes/${orderId}`);
   revalidatePath("/admin/commandes");
   revalidatePath("/admin/preparation");
+  return {};
 }
 
-export async function markOrderDeliveredAction(orderId: string) {
+export async function markOrderDeliveredAction(orderId: string): Promise<FulfilmentActionState> {
   const admin = await requireAdmin();
-  await markOrderDelivered(orderId, admin.adminId);
+
+  try {
+    await markOrderDelivered(orderId, admin.adminId);
+  } catch (error) {
+    if (
+      error instanceof OrderNotFoundError ||
+      error instanceof InvalidFulfilmentTransitionError ||
+      error instanceof FulfilmentConflictError
+    ) {
+      return { formError: error.message };
+    }
+    throw error;
+  }
+
   revalidatePath(`/admin/commandes/${orderId}`);
   revalidatePath("/admin/commandes");
   revalidatePath("/admin/preparation");
+  return {};
 }
 
 export interface MarkPaymentReceivedState {

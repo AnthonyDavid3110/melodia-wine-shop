@@ -1,6 +1,10 @@
+"use client";
+
+import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
+  type FulfilmentActionState,
   handOrderToSellerAction,
   markOrderDeliveredAction,
   markOrderPreparedAction,
@@ -50,6 +54,29 @@ export function FulfilmentSection({
   handedToSellerAt: Date | null;
   deliveredAt: Date | null;
 }) {
+  // Phase 14 Gate 14D: three independent `useActionState` calls, one per
+  // button, matching `CancelOrderButton`'s existing pattern — each
+  // action now returns a typed `{ formError }` result (a stale-
+  // transition or genuine concurrency conflict) instead of throwing
+  // unhandled. Hoisted above the `status === "CANCELLED"` early return
+  // below: React hooks must run unconditionally on every render, never
+  // skipped by a branch.
+  const preparedOrderAction = markOrderPreparedAction.bind(null, orderId);
+  const handToSellerOrderAction = handOrderToSellerAction.bind(null, orderId);
+  const deliveredOrderAction = markOrderDeliveredAction.bind(null, orderId);
+  const [prepareState, prepareFormAction, isPreparePending] = useActionState<
+    FulfilmentActionState,
+    FormData
+  >(preparedOrderAction, {});
+  const [handToSellerState, handToSellerFormAction, isHandToSellerPending] = useActionState<
+    FulfilmentActionState,
+    FormData
+  >(handToSellerOrderAction, {});
+  const [deliverState, deliverFormAction, isDeliverPending] = useActionState<
+    FulfilmentActionState,
+    FormData
+  >(deliveredOrderAction, {});
+
   if (status === "CANCELLED") {
     return (
       <p className="text-muted-foreground text-body-sm font-sans">
@@ -64,10 +91,6 @@ export function FulfilmentSection({
     { label: "Remise au vendeur", completedAt: handedToSellerAt },
     { label: "Livrée", completedAt: deliveredAt },
   ];
-
-  const preparedOrderAction = markOrderPreparedAction.bind(null, orderId);
-  const handToSellerOrderAction = handOrderToSellerAction.bind(null, orderId);
-  const deliveredOrderAction = markOrderDeliveredAction.bind(null, orderId);
 
   return (
     <div className="flex flex-col gap-4">
@@ -87,8 +110,13 @@ export function FulfilmentSection({
       </ol>
 
       {canPrepare ? (
-        <form action={preparedOrderAction}>
-          <Button type="submit" variant="outline">
+        <form action={prepareFormAction} className="flex flex-col gap-2">
+          {prepareState.formError ? (
+            <p role="alert" className="text-danger text-body-sm font-sans">
+              {prepareState.formError}
+            </p>
+          ) : null}
+          <Button type="submit" variant="outline" disabled={isPreparePending}>
             Marquer comme préparée
           </Button>
         </form>
@@ -101,16 +129,26 @@ export function FulfilmentSection({
       ) : null}
 
       {canHandToSeller ? (
-        <form action={handToSellerOrderAction}>
-          <Button type="submit" variant="outline">
+        <form action={handToSellerFormAction} className="flex flex-col gap-2">
+          {handToSellerState.formError ? (
+            <p role="alert" className="text-danger text-body-sm font-sans">
+              {handToSellerState.formError}
+            </p>
+          ) : null}
+          <Button type="submit" variant="outline" disabled={isHandToSellerPending}>
             Remettre au vendeur
           </Button>
         </form>
       ) : null}
 
       {canMarkDelivered ? (
-        <form action={deliveredOrderAction}>
-          <Button type="submit" variant="outline">
+        <form action={deliverFormAction} className="flex flex-col gap-2">
+          {deliverState.formError ? (
+            <p role="alert" className="text-danger text-body-sm font-sans">
+              {deliverState.formError}
+            </p>
+          ) : null}
+          <Button type="submit" variant="outline" disabled={isDeliverPending}>
             Marquer comme livrée
           </Button>
         </form>

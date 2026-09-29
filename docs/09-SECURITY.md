@@ -1665,6 +1665,25 @@ Server revalidates seller eligibility.
 If invalid, customer should be asked to select another seller or continue
 unassigned.
 
+> **Gate 14D implementation note (adopted) — fulfilment concurrency:**
+> closes the Gate 14A MEDIUM finding ("fulfilment-transition concurrency
+> has no DB-level backstop, only domain-code guards"). The DB-level
+> backstop is the authoritative conditional compare-and-set `UPDATE`
+> (`WHERE id = ? AND status = <exact expected source status>`) that now
+> follows the pre-existing initial `SELECT` + domain guard on every
+> fulfilment transition and on cancellation — cancellation writes the
+> same `orders.status` column every fulfilment step does, so it is
+> covered by the same invariant. A stale or losing concurrent writer can
+> never silently overwrite the winner: an unmatched conditional `UPDATE`
+> throws a typed `FulfilmentConflictError` before any event is written,
+> so a rejected attempt never produces a success event. Verified by
+> deterministic tests using genuinely independent, real-committed
+> database transactions (`src/infrastructure/database/integration/
+> fulfilment-concurrency.db.test.ts`) — not sequential calls inside one
+> transaction, which cannot exercise this class of race at all. See
+> `docs/05-ARCHITECTURE.md` for the full architecture and
+> `docs/02-BUSINESS-RULES.md` BR-STA-009 for the business-rule statement.
+
 ---
 
 # 71. Duplicate order protection

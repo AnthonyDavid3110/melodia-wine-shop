@@ -7,7 +7,7 @@ import {
   orders,
   sellers,
 } from "../database/schema";
-import { OrderNotFoundError } from "../orders/orders";
+import { FulfilmentConflictError, OrderNotFoundError } from "../orders/orders";
 import {
   canHandOrderToSeller,
   canMarkOrderDelivered,
@@ -268,6 +268,16 @@ export async function getCampaignOrderBottleCounts(
 /**
  * Marks an order PREPARED (Phase 9 §14/§17). Central preparation has no
  * seller requirement — see `canPrepareOrder`.
+ *
+ * Phase 14 Gate 14D: the authoritative UPDATE is conditioned on `status`
+ * still equalling `CONFIRMED` — the exact source status this transition
+ * requires (docs/02-BUSINESS-RULES.md BR-STA-006). The initial `SELECT`
+ * above stays for the not-found/invalid-transition typed errors; it is
+ * NOT the concurrency guarantee. If a concurrent writer (another
+ * `markOrderPrepared` call, or `cancelOrder`) already changed the
+ * status, zero rows match and `FulfilmentConflictError` is thrown
+ * before the event is inserted — a losing concurrent call never
+ * produces a success event.
  */
 export async function markOrderPrepared(id: string, adminUserId: string, dbHandle: DbHandle = db) {
   return dbHandle.transaction(async (tx) => {
@@ -282,8 +292,11 @@ export async function markOrderPrepared(id: string, adminUserId: string, dbHandl
     const [updated] = await tx
       .update(orders)
       .set({ status: "PREPARED", preparedAt: new Date() })
-      .where(eq(orders.id, id))
+      .where(and(eq(orders.id, id), eq(orders.status, "CONFIRMED")))
       .returning();
+    if (!updated) {
+      throw new FulfilmentConflictError();
+    }
 
     await tx.insert(orderEvents).values({
       orderId: id,
@@ -292,7 +305,7 @@ export async function markOrderPrepared(id: string, adminUserId: string, dbHandl
       adminUserId,
     });
 
-    return updated!;
+    return updated;
   });
 }
 
@@ -301,6 +314,10 @@ export async function markOrderPrepared(id: string, adminUserId: string, dbHandl
  * PREPARED status AND an assigned seller — the two failure modes get
  * distinct error types so order detail can explain the missing seller
  * specifically rather than a generic "not eligible" message.
+ *
+ * Phase 14 Gate 14D: authoritative UPDATE conditioned on `status` still
+ * equalling `PREPARED` — see `markOrderPrepared`'s comment for the full
+ * rationale, identical here.
  */
 export async function handOrderToSeller(id: string, adminUserId: string, dbHandle: DbHandle = db) {
   return dbHandle.transaction(async (tx) => {
@@ -321,8 +338,11 @@ export async function handOrderToSeller(id: string, adminUserId: string, dbHandl
     const [updated] = await tx
       .update(orders)
       .set({ status: "HANDED_TO_SELLER", handedToSellerAt: new Date() })
-      .where(eq(orders.id, id))
+      .where(and(eq(orders.id, id), eq(orders.status, "PREPARED")))
       .returning();
+    if (!updated) {
+      throw new FulfilmentConflictError();
+    }
 
     await tx.insert(orderEvents).values({
       orderId: id,
@@ -331,11 +351,17 @@ export async function handOrderToSeller(id: string, adminUserId: string, dbHandl
       adminUserId,
     });
 
-    return updated!;
+    return updated;
   });
 }
 
-/** Marks an order DELIVERED (Phase 9 §14/§19). Never touches payment/settlement state — see §3 of the approved plan. */
+/**
+ * Marks an order DELIVERED (Phase 9 §14/§19). Never touches payment/settlement state — see §3 of the approved plan.
+ *
+ * Phase 14 Gate 14D: authoritative UPDATE conditioned on `status` still
+ * equalling `HANDED_TO_SELLER` — see `markOrderPrepared`'s comment for
+ * the full rationale, identical here.
+ */
 export async function markOrderDelivered(id: string, adminUserId: string, dbHandle: DbHandle = db) {
   return dbHandle.transaction(async (tx) => {
     const [existing] = await tx.select().from(orders).where(eq(orders.id, id));
@@ -349,8 +375,11 @@ export async function markOrderDelivered(id: string, adminUserId: string, dbHand
     const [updated] = await tx
       .update(orders)
       .set({ status: "DELIVERED", deliveredAt: new Date() })
-      .where(eq(orders.id, id))
+      .where(and(eq(orders.id, id), eq(orders.status, "HANDED_TO_SELLER")))
       .returning();
+    if (!updated) {
+      throw new FulfilmentConflictError();
+    }
 
     await tx.insert(orderEvents).values({
       orderId: id,
@@ -359,7 +388,7 @@ export async function markOrderDelivered(id: string, adminUserId: string, dbHand
       adminUserId,
     });
 
-    return updated!;
+    return updated;
   });
 }
 
@@ -394,6 +423,19 @@ export interface BulkPrepareInput {
  * Bulk preparation (Phase 9 §7/§17). One transaction, all-or-nothing:
  * every submitted id is reloaded and re-validated server-side; if ANY
  * is ineligible, the whole batch is rejected — never a partial result.
+ *
+ * Phase 14 Gate 14D: the authoritative bulk UPDATE is conditioned on
+ * `status` still equalling `CONFIRMED` for every targeted row (the one
+ * exact expected source status for this transition — never a mixed/
+ * `ANY(...)` predicate). If any validated order was concurrently
+ * changed between the plain `SELECT` above and this UPDATE, fewer rows
+ * come back than were selected; throwing rolls back the ENTIRE
+ * transaction (Drizzle rolls back on a thrown error inside
+ * `dbHandle.transaction()`), so no order in the batch is left
+ * transitioned and no event from this batch is written — the same
+ * all-or-nothing guarantee the existing per-row validation loop above
+ * already provides, extended to cover a concurrency conflict the same
+ * way it already covers a validation failure.
  */
 export async function bulkPrepareOrders(input: BulkPrepareInput, dbHandle: DbHandle = db) {
   return dbHandle.transaction(async (tx) => {
@@ -407,10 +449,14 @@ export async function bulkPrepareOrders(input: BulkPrepareInput, dbHandle: DbHan
     }
 
     const now = new Date();
-    await tx
+    const updatedRows = await tx
       .update(orders)
       .set({ status: "PREPARED", preparedAt: now })
-      .where(inArray(orders.id, ids));
+      .where(and(inArray(orders.id, ids), eq(orders.status, "CONFIRMED")))
+      .returning({ id: orders.id });
+    if (updatedRows.length !== ids.length) {
+      throw new FulfilmentConflictError();
+    }
 
     for (const id of ids) {
       await tx.insert(orderEvents).values({
@@ -435,6 +481,13 @@ export interface BulkHandToSellerInput {
 /**
  * Seller-scoped bulk handoff (Phase 9 §7/§18). Every selected order
  * must already belong to the given seller — no mixed-seller handoff.
+ *
+ * Phase 14 Gate 14D: authoritative bulk UPDATE conditioned on `status`
+ * still equalling `PREPARED` for every targeted row — see
+ * `bulkPrepareOrders`'s comment for the full rationale, identical here.
+ * (`sellerId` stays a pre-write validation check only, not part of the
+ * compare-and-set predicate — seller reassignment is a separate,
+ * out-of-scope concern per the approved Gate 14D plan §12.)
  */
 export async function bulkHandOrdersToSeller(
   input: BulkHandToSellerInput,
@@ -451,10 +504,14 @@ export async function bulkHandOrdersToSeller(
     }
 
     const now = new Date();
-    await tx
+    const updatedRows = await tx
       .update(orders)
       .set({ status: "HANDED_TO_SELLER", handedToSellerAt: now })
-      .where(inArray(orders.id, ids));
+      .where(and(inArray(orders.id, ids), eq(orders.status, "PREPARED")))
+      .returning({ id: orders.id });
+    if (updatedRows.length !== ids.length) {
+      throw new FulfilmentConflictError();
+    }
 
     for (const id of ids) {
       await tx.insert(orderEvents).values({
@@ -480,6 +537,10 @@ export interface BulkDeliverInput {
  * Seller-scoped bulk delivery (Phase 9 §7/§19) — scoped by seller for
  * the same reason as handoff: prevents an accidental cross-seller bulk
  * action, and every HANDED_TO_SELLER order already has a seller anyway.
+ *
+ * Phase 14 Gate 14D: authoritative bulk UPDATE conditioned on `status`
+ * still equalling `HANDED_TO_SELLER` for every targeted row — see
+ * `bulkPrepareOrders`'s comment for the full rationale, identical here.
  */
 export async function bulkMarkOrdersDelivered(input: BulkDeliverInput, dbHandle: DbHandle = db) {
   return dbHandle.transaction(async (tx) => {
@@ -493,10 +554,14 @@ export async function bulkMarkOrdersDelivered(input: BulkDeliverInput, dbHandle:
     }
 
     const now = new Date();
-    await tx
+    const updatedRows = await tx
       .update(orders)
       .set({ status: "DELIVERED", deliveredAt: now })
-      .where(inArray(orders.id, ids));
+      .where(and(inArray(orders.id, ids), eq(orders.status, "HANDED_TO_SELLER")))
+      .returning({ id: orders.id });
+    if (updatedRows.length !== ids.length) {
+      throw new FulfilmentConflictError();
+    }
 
     for (const id of ids) {
       await tx.insert(orderEvents).values({
