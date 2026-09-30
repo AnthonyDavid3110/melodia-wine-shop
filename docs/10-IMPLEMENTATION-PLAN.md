@@ -1692,6 +1692,11 @@ Fix findings before launch.
 Production launch checklist in `09-SECURITY.md` can be completed without
 known critical gaps.
 
+**Met (Gate 14G):** the checklist in `docs/09-SECURITY.md` §79 has no
+known critical gap — every item Phase 14 was responsible for verifying
+is checked with evidence; every remaining open item is explicit Phase
+15/legal/operational scope, not a critical gap.
+
 ---
 
 ## Phase 14 Gate 14A — full security & resilience audit (verified complete)
@@ -1921,8 +1926,54 @@ migration; zero GitHub repository secrets were needed at any point.
 
 **Gate 14F is COMPLETE.**
 
-**Phase 14 is IN PROGRESS.** Gates 14A–14F are complete; Gate 14G
-(final checklist/docs and Phase 14 completion) has not started.
+## Phase 14 Gate 14G — checklist/docs and Phase 14 completion (COMPLETE)
+
+Final read-only traceability audit (Step 1) confirmed: all three Gate
+14A findings (1 HIGH, 2 MEDIUM) traceably closed with implementation
+and executable evidence; the Gate 14E formal abuse matrix has 30 total
+rows with 0 unresolved (25 `VERIFIED`, 2 `VERIFIED — code audit`, 3
+`NOT APPLICABLE`), all 24 referenced test files confirmed to still
+exist; Gate 14F's CI verification (run `36740067466`) remains intact;
+no application/test/schema/security code changed between the Gate 14E
+checkpoint (`3206c2b7009d33ec8e889f321388e81dd6c9e4bb`) and Gate 14G,
+so no abuse evidence needed revisiting. The audit found Gate 14G to be
+documentation/checklist closure only — no production code, test,
+workflow, migration, or dependency change required.
+
+Step 2 synchronized `docs/09-SECURITY.md` §79's production launch
+security checklist: 7 items (admin authorization; payment amount
+mismatch; price manipulation; marking payment paid; settlement
+duplication; CSV export authorization; CSV formula injection) were
+checked off with concise evidence citations into the existing Gate 14E
+abuse matrix, reflecting verification Phase 14 had already performed
+but the checklist had not yet recorded. The file-upload item was
+recorded as an explicit **N/A** (no upload feature exists in V1,
+ABUSE-MISC-002) rather than a checkmark, so it cannot be misread as a
+tested validation path. Every remaining checklist item that Phase 14
+did not verify — HTTPS, production secrets/backups, individual
+production admin accounts, production Worldline/Saferpay callback
+registration, email-domain authentication, dependency review, restore
+procedure, privacy/legal pages, error-page/log-PII review — was left
+open, as genuine Phase 15/legal/operational scope, not Phase 14
+documentation staleness. A closure checklist was added directly below
+the Gate 14E matrix in `docs/09-SECURITY.md`. All residual/future TBDs
+(`TBD-SEC-002` MFA, `TBD-SEC-005` data retention, `TBD-SEC-006`
+privacy/legal docs, `TBD-SEC-007` backup provider, `TBD-ARCH-006`
+image storage, `TBD-ARCH-008` monitoring) were preserved exactly as
+open — none were closed merely because Phase 14 is ending.
+
+No production code, test, workflow, migration, or dependency changed.
+
+**Gate 14G is COMPLETE.**
+
+**Phase 14 — Security and resilience hardening: COMPLETE.** Rate
+limiting, security headers/CSP, and fulfilment-transition concurrency
+were hardened and verified; the formal abuse-case matrix was fully
+resolved; CI reproducibility was verified on a real GitHub-hosted
+runner; no unresolved Phase 14 security blocker remains. This marks
+Phase 14 hardening complete, not production readiness — production
+deployment, DNS/HTTPS, production credentials, backups, and
+operational readiness remain Phase 15 scope.
 
 ---
 
@@ -2431,7 +2482,7 @@ Application implementation:
     Phase 11  Transactional email                   COMPLETE
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
-    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B/14C/14D/14E/14F done, 14G pending)
+    Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
     Phase 15+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

@@ -1878,7 +1878,8 @@ Before launch verify:
 
     [ ] Individual admin accounts configured
 
-    [ ] Admin authorization tested
+    [x] Admin authorization tested — ABUSE-AUTH-001 through
+        ABUSE-AUTH-004 (§ Gate 14E matrix)
 
     [x] Payment sandbox tests completed — Phase 10 Gate 10C-B2, real
         Saferpay TEST TWINT / Visa+3DS / cancellation acceptance tests
@@ -1890,19 +1891,19 @@ Before launch verify:
         unsuppressed ReturnUrl/NotifyUrl race, not only a simulated
         duplicate (08-PAYMENTS.md §73.2)
 
-    [ ] Payment amount mismatch tested
+    [x] Payment amount mismatch tested — ABUSE-PAY-004
 
-    [ ] Customer cannot manipulate prices
+    [x] Customer cannot manipulate prices — ABUSE-CHECKOUT-001
 
-    [ ] Customer cannot mark payment paid
+    [x] Customer cannot mark payment paid — ABUSE-PAY-001
 
-    [ ] Seller settlement cannot be duplicated
+    [x] Seller settlement cannot be duplicated — ABUSE-SETTLE-001
 
-    [ ] CSV export authorization tested
+    [x] CSV export authorization tested — ABUSE-EXPORT-001
 
-    [ ] CSV formula injection handled
+    [x] CSV formula injection handled — ABUSE-EXPORT-002
 
-    [ ] File uploads validated
+    N/A — File uploads: no upload feature exists in V1 (ABUSE-MISC-002)
 
     [x] Security headers reviewed — Phase 14 Gate 14C, static CSP +
         X-Content-Type-Options/Referrer-Policy/Permissions-Policy/
@@ -2001,6 +2002,35 @@ Gates 14B, 14C, and 14D's own test suites are referenced above as direct
 evidence, not recreated. No dedicated abuse/penetration-test file was
 created — see `docs/05-ARCHITECTURE.md` for the rationale (Option B:
 domain-specific additions, kept where each behavior already lives).
+
+## Gate 14G — Phase 14 closure checklist (verified complete)
+
+Final evidence-based closure check, not a new audit:
+
+    [x] Gate 14A findings closed: 1 HIGH + 2 MEDIUM, all with
+        implementation + executable evidence (Gates 14B/14C/14D)
+    [x] Gate 14B rate limiting verified
+    [x] Gate 14C security headers/CSP verified
+    [x] Gate 14D fulfilment concurrency verified
+    [x] Gate 14E formal abuse matrix resolved: 30 total / 25 VERIFIED /
+        2 VERIFIED — code audit / 3 NOT APPLICABLE / 0 unresolved
+    [x] Gate 14F CI verified on a clean GitHub-hosted runner
+        (run `36740067466`)
+    [x] No unresolved Phase 14 security blocker
+    [x] Residual/future risks remain explicitly documented (TBD-SEC-002,
+        TBD-SEC-005, TBD-SEC-006, TBD-SEC-007, TBD-ARCH-006,
+        TBD-ARCH-008)
+    [x] Production/deployment work explicitly separated into Phase 15
+    [x] Phase 14 documentation/status synchronized
+
+**Phase 14 — Security and resilience hardening: COMPLETE.** Rate
+limiting, security headers/CSP, and fulfilment-transition concurrency
+were hardened and verified; a formal 30-scenario abuse matrix was
+resolved with zero unresolved rows; CI reproducibility was verified on
+a real GitHub-hosted runner. No unresolved Phase 14 security blocker
+remains. This is Phase 14 hardening completion, not a production-
+readiness declaration — production deployment, DNS/HTTPS, production
+credentials, backups, and operational readiness remain Phase 15 scope.
 
 ---
 
