@@ -1271,23 +1271,45 @@ Example:
 
 or equivalent depending on selected package manager.
 
-> **Gate 14F implementation note (adopted, local implementation
-> complete — remote GitHub Actions verification still pending):** CI
+> **Gate 14F implementation note (adopted, verified complete):** CI
 > (`.github/workflows/ci.yml`) installs with `pnpm install
 > --frozen-lockfile` — a lockfile/manifest mismatch fails the workflow
-> outright rather than silently regenerating `pnpm-lock.yaml`. **Zero
-> GitHub repository secrets are used anywhere in the workflow** — every
-> environment value it sets (database, Better Auth, app base URL) is a
-> fixed, already-documented-as-non-secret development/test value
-> (matching `compose.yaml`/`.env.example`'s own existing convention),
-> and Saferpay/Resend credentials are never provided at all, since the
-> E2E suite's existing fake-provider flags mean no CI run ever reaches
-> a real payment or email provider. The workflow requests only
-> `contents: read` — no write, no pull-request, no packages, no
-> deployment, no `id-token` permission. See `docs/05-ARCHITECTURE.md`
-> §48 for the full architecture. Gate 14F is not yet complete: local
-> validation is fully green, but no real GitHub Actions run has
-> occurred yet.
+> outright rather than silently regenerating `pnpm-lock.yaml`. Security
+> properties, as implemented and confirmed on a real GitHub-hosted
+> runner:
+>
+> - **Minimum permissions**: the workflow requests only
+>   `contents: read` — no write, no pull-request, no packages, no
+>   `id-token`, no deployment permission of any kind, and no
+>   `pull_request_target` trigger (only `pull_request`, `push` to
+>   `main`, and manual `workflow_dispatch`).
+> - **Zero GitHub repository secrets** anywhere in the workflow —
+>   every environment value it sets (database, Better Auth, app base
+>   URL) is a fixed, synthetic, already-documented-as-non-secret
+>   development/test value, matching `compose.yaml`/`.env.example`'s
+>   own existing convention. No production credentials, no Neon
+>   access, no Vercel access are ever present.
+> - **Disposable infrastructure only**: a fresh PostgreSQL 18 service
+>   container, created and destroyed per run — never a persistent or
+>   external database.
+> - **Fake providers only**: Saferpay and Resend credentials are never
+>   provided at all; the E2E suite's existing fake-provider flags mean
+>   no CI run ever reaches a real payment or email provider.
+> - **Failure-only, short-retention artifacts**: the Playwright report
+>   uploads only `if: failure()`, with a 7-day retention.
+> - CI reproduces, on a fresh runner, the same quality gate
+>   (format/lint/typecheck/unit/DB/E2E/build) already enforced locally
+>   — it verifies reproducibility of that existing gate, not a new
+>   scanning capability.
+>
+> The corrected workflow completed successfully end-to-end on a real
+> GitHub Actions run (commit `06eb8ccf959a378b9faa6410f028c2a81bd44b8b`,
+> run `36740067466`). See `docs/05-ARCHITECTURE.md` §48 for the full
+> architecture and the fresh-checkout typegen finding.
+>
+> **Scope note**: Gate 14F is CI enforcement/reproducibility, not a
+> security scanner or penetration test. The formal abuse-case
+> verification gate remains Gate 14E.
 
 ---
 

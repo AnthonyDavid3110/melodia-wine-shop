@@ -1851,20 +1851,20 @@ are referenced as evidence, never recreated.
 
 No production code was changed. No migration, no new dependency.
 
-## Phase 14 Gate 14F — CI (local implementation complete, remote verification pending)
+## Phase 14 Gate 14F — CI (verified complete)
 
 One sequential `quality` job (`.github/workflows/ci.yml`) reproduces the
 existing local quality gate on GitHub Actions: install (frozen
-lockfile) → format check → lint → typecheck → unit tests → PostgreSQL
-18 service → migrate → seed → DB integration tests → Playwright
-Chromium install → E2E tests → (upload `playwright-report/`/
-`test-results/` only on failure) → build. One disposable PostgreSQL
-service is shared sequentially by migrations, seed, DB tests, and E2E
-— never reset in between, matching this project's own established
-local development/test architecture (the same database DB tests just
-seeded is the one E2E runs against). Chosen over a multi-job
-architecture because the DB/E2E suites already run
-non-parallel (`fileParallelism: false`, `workers: 1`) for
+lockfile) → format check → lint → generate Next.js types → typecheck →
+unit tests → PostgreSQL 18 service → migrate → seed → DB integration
+tests → Playwright Chromium install → E2E tests → (upload
+`playwright-report/`/`test-results/` only on failure) → build. One
+disposable PostgreSQL service is shared sequentially by migrations,
+seed, DB tests, and E2E — never reset in between, matching this
+project's own established local development/test architecture (the
+same database DB tests just seeded is the one E2E runs against).
+Chosen over a multi-job architecture because the DB/E2E suites already
+run non-parallel (`fileParallelism: false`, `workers: 1`) for
 shared-state-safety reasons specific to this codebase's own history.
 
 Triggers: `pull_request`, `push` to `main`, `workflow_dispatch`.
@@ -1888,22 +1888,41 @@ existing fake-provider flags mean no CI run ever contacts a real
 provider. See `docs/05-ARCHITECTURE.md` §48 and `docs/09-SECURITY.md`
 §56 for the full architecture and security rationale.
 
-Local verification (this step): format/lint/typecheck/unit/DB/E2E/
-build all pass, exactly matching the pre-existing baseline (0 new lint
-warnings, no test-count regression). Workflow YAML structurally
-validated (parses correctly, all 14 steps in the intended order,
-passes the project's own Prettier check). Playwright retry/trace
-behavior deliberately left unchanged pending the first real CI run
-(Step 1 found `trace: "on-first-retry"` currently never fires locally
-since retries default to 0 — not addressed pre-emptively).
+Local verification (initial implementation): format/lint/typecheck/
+unit/DB/E2E/build all pass, exactly matching the pre-existing baseline
+(0 new lint warnings, no test-count regression). Workflow YAML
+structurally validated (parses correctly, passes the project's own
+Prettier check). Playwright retry/trace behavior deliberately left
+unchanged (Step 1 found `trace: "on-first-retry"` currently never
+fires locally since retries default to 0 — not addressed
+pre-emptively).
 
-**Gate 14F is NOT yet complete.** No production/test code was
-changed; no migration; no new dependency. A real GitHub Actions run
-has not yet occurred — local validation cannot prove the workflow
-executes correctly on GitHub's own infrastructure. Gate 14F remains
-open until that remote run passes.
+**Remote verification, real GitHub Actions runs**: the first run on
+the initial commit (`f5f99f1e30c1b1c5e237abc7e9e8653b2e4cac2d`, run
+`36702768094`) failed at the typecheck step. Root cause: this
+application's `src/app/layout.tsx` and
+`src/app/admin/(protected)/layout.tsx` use the Next.js-generated
+`LayoutProps` type helper, produced only as a side effect of a prior
+`next build`/`next dev`; `tsconfig.json`'s own `include` list depends
+on it. A fresh CI checkout has never run either, so the types did not
+exist — a condition local development never hit, since `.next/`
+had always already existed there. This was reproduced locally by
+temporarily removing `.next/` and confirming the identical failure.
+The deterministic fix — a dedicated `next typegen` step immediately
+before `typecheck` — was added in a separate corrective commit
+(`06eb8ccf959a378b9faa6410f028c2a81bd44b8b`), verified locally from a
+genuinely absent `.next/` state first, then confirmed by a second real
+GitHub Actions run (`36740067466`), which **succeeded end-to-end**:
+format check, lint, type generation, typecheck, unit tests, Postgres
+migrate/seed, DB integration tests, Chromium install, E2E tests, and
+build all passed on a standard GitHub-hosted runner. No application or
+test behavior was changed by either commit; no new dependency; no
+migration; zero GitHub repository secrets were needed at any point.
 
-**Phase 14 is NOT complete.** Gates 14F–14G remain pending.
+**Gate 14F is COMPLETE.**
+
+**Phase 14 is IN PROGRESS.** Gates 14A–14F are complete; Gate 14G
+(final checklist/docs and Phase 14 completion) has not started.
 
 ---
 
@@ -2412,7 +2431,7 @@ Application implementation:
     Phase 11  Transactional email                   COMPLETE
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
-    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B/14C/14D/14E done, 14F-14G pending)
+    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B/14C/14D/14E/14F done, 14G pending)
     Phase 15+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
