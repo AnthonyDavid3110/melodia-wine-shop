@@ -92,6 +92,18 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # tsconfig.json's own `include` list contains the Next.js-
+      # generated `.next/types/**/*.ts` (route/layout type helpers like
+      # `LayoutProps`, referenced by src/app/layout.tsx and
+      # src/app/admin/(protected)/layout.tsx) — only ever produced as a
+      # side effect of a prior `next build`/`next dev` run. A fresh
+      # checkout has neither, so typecheck must generate them first;
+      # `next typegen` does this without a full build. Discovered by
+      # the first real CI run (local dev environments never hit this,
+      # since `.next/` already existed there from routine `next dev`).
+      - name: Generate Next.js types
+        run: pnpm exec next typegen
+
       - name: Typecheck
         run: pnpm typecheck
 
