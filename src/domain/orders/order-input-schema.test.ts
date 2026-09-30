@@ -68,6 +68,13 @@ describe("orderCreationInputSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts the declared maximum item quantity (999) — Gate 14E boundary confirmation", () => {
+    const result = orderCreationInputSchema.safeParse(
+      validPayload({ items: [{ type: "PRODUCT", id: "wine-1", quantity: 999 }] }),
+    );
+    expect(result.success).toBe(true);
+  });
+
   it("rejects a malformed idempotency key (not a UUID)", () => {
     const result = orderCreationInputSchema.safeParse(
       validPayload({ idempotencyKey: "not-a-uuid" }),

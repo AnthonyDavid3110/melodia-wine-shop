@@ -1819,7 +1819,39 @@ concurrency invariant is proven exclusively at the DB/integration
 level. See `docs/05-ARCHITECTURE.md` and `docs/09-SECURITY.md` (near
 §70) for the full architecture.
 
-**Phase 14 is NOT complete.** Gates 14E–14G remain pending.
+## Phase 14 Gate 14E — formal abuse-test verification (verified complete)
+
+Not tied to a remaining Gate 14A finding — all three (HIGH rate
+limiting, MEDIUM headers/CSP, MEDIUM fulfilment concurrency) were
+already closed by Gates 14B/14C/14D. Gate 14E instead formalizes the
+abuse scenarios named in `docs/09-SECURITY.md` §80 and this document's
+own §84 against actual executable evidence, in a new formal matrix
+(`docs/09-SECURITY.md`, after §80) mapping each documented abuse case
+to its control and evidence — 30 rows total: 25 `VERIFIED`, 2
+`VERIFIED — code audit` (admin Server Action authorization — a single
+centralized `requireAdmin()` boundary, proven by code audit + the
+shared resolver's own DB test, deliberately not a fragile raw
+Server-Action-wire-protocol test; and XSS/delivery-note handling —
+React's default JSX escaping is a framework guarantee, backed by the
+email-HTML-escaping function's own exhaustive unit tests and the CSP
+layer as defense-in-depth), and 3 `NOT APPLICABLE` (open redirect — no
+dynamic redirect surface exists; image upload — no file-upload feature
+exists in V1; session expiration — delegated entirely to Better Auth).
+
+Architecture: Option B (domain-specific test additions, no dedicated
+abuse/security test file — see `docs/05-ARCHITECTURE.md`). Of the full
+scenario list, only three genuine executable gaps were found and
+closed: `create-order.db.test.ts` (campaign closure between checkout
+page load and submission), `order-input-schema.test.ts` (quantity-999
+boundary-acceptance case), `order-admin.db.test.ts` (a PAID order's
+monetary fields proven untouched by the ordinary edit path, using a
+real order in the PAID state). Gate 14B/14C/14D's own suites, and the
+pre-existing checkout/payment/export/document/email/settlement suites,
+are referenced as evidence, never recreated.
+
+No production code was changed. No migration, no new dependency.
+
+**Phase 14 is NOT complete.** Gates 14F–14G remain pending.
 
 ---
 
@@ -2328,7 +2360,7 @@ Application implementation:
     Phase 11  Transactional email                   COMPLETE
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
-    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B/14C/14D done, 14E-14G pending)
+    Phase 14  Security and resilience hardening  IN PROGRESS (Gate 14A/14B/14C/14D/14E done, 14F-14G pending)
     Phase 15+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

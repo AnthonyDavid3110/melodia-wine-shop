@@ -20,6 +20,7 @@ import {
   campaignSellers,
   campaigns,
   orderEvents,
+  orderItems,
   orders,
   products,
   sellers,
@@ -135,6 +136,57 @@ describe("updateOrderCustomerInfo", () => {
       const events = await tx.select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
       const editEvent = events.find((event) => event.type === "ORDER_EDITED");
       expect(editEvent).toMatchObject({ actorType: "ADMIN", adminUserId: admin.id });
+    });
+  });
+
+  /**
+   * Gate 14E ABUSE re-check (docs/09-SECURITY.md §67/§80 "paid-order
+   * monetary modification"): `updateOrderCustomerInfo`'s own
+   * `CustomerInfoUpdate` interface structurally has no monetary field
+   * to begin with (no quantity/product/bundle/price/total) — there is
+   * no separate "block it once PAID" runtime check because there is no
+   * monetary mutation surface anywhere for this or any other admin
+   * action to guard. This test proves that invariant with a real,
+   * already-PAID order and the real production function, rather than
+   * relying on code inspection alone: the full allowed field set is
+   * updated, and every monetary column/row is asserted byte-for-byte
+   * unchanged.
+   */
+  it("even a PAID order's monetary fields are untouched — updateOrderCustomerInfo has no monetary mutation surface (Gate 14E)", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const product = await setupProduct(tx, campaign.id);
+      const admin = await setupAdmin(tx);
+      const order = await createTestOrder(tx, campaign.id, product.id);
+
+      await tx.update(orders).set({ customerPaymentStatus: "PAID" }).where(eq(orders.id, order.id));
+      const itemsBefore = await tx
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      const updated = await updateOrderCustomerInfo(
+        order.id,
+        {
+          customerFirstName: "Marie",
+          customerLastName: "Martin",
+          customerAddress: "Avenue Neuve 3",
+          customerPostalCode: "2000",
+          customerCity: "Neuchâtel",
+          customerEmail: "marie@example.test",
+          customerPhone: "079 111 11 11",
+          deliveryNote: "Sonner fort",
+        },
+        admin.id,
+        tx,
+      );
+
+      expect(updated.customerPaymentStatus).toBe("PAID");
+      expect(updated.subtotalAmount).toBe(order.subtotalAmount);
+      expect(updated.totalAmount).toBe(order.totalAmount);
+
+      const itemsAfter = await tx.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+      expect(itemsAfter).toEqual(itemsBefore);
     });
   });
 });

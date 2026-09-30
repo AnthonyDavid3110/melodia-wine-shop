@@ -1748,6 +1748,56 @@ own established pattern.
 
 ---
 
+## Phase 14 Gate 14E implementation (adopted) — formal abuse-test verification
+
+Not tied to a remaining Gate 14A finding — all three (rate limiting,
+headers/CSP, fulfilment concurrency) were already closed by Gates
+14B/14C/14D. Gate 14E instead formalizes the abuse scenarios named in
+`docs/09-SECURITY.md` §80 and `docs/10-IMPLEMENTATION-PLAN.md` §84
+against actual executable evidence — see the formal matrix in
+`docs/09-SECURITY.md` (after §80).
+
+**Architecture: Option B — domain-specific test additions, kept where
+each behavior already lives, plus a documentation matrix.** No
+dedicated `abuse.spec.ts`/security-test directory was created. Of the
+~30 named abuse scenarios, the audit found the overwhelming majority
+already had solid executable evidence from the existing domain-specific
+suites (Gate 14B/14C/14D's own tests, plus the pre-existing checkout/
+payment/export/document/email test suites) — adding a parallel
+cross-cutting file would have either duplicated that coverage (which
+Gate 14E's own approved scope explicitly forbids) or contained almost
+nothing of its own.
+
+Exactly three genuinely missing pieces were added, each a small,
+deterministic case placed directly beside its sibling tests: a
+`create-order.db.test.ts` case for campaign closure between checkout
+page load and submission (`no-active-campaign`), an
+`order-input-schema.test.ts` case confirming the declared maximum
+quantity (999) is accepted (the rejection boundaries were already
+tested), and an `order-admin.db.test.ts` case proving a PAID order's
+monetary fields are untouched by the ordinary customer-info edit path
+using a real order in the PAID state, not code inspection alone.
+
+One item (admin Server Action authorization) is documented as
+`VERIFIED — code audit` rather than backed by a new executable test:
+`requireAdmin()` is a single, centralized authorization boundary
+(verified this gate to have complete coverage across every admin action
+file), already proven directly by `auth.db.test.ts`. Crafting a raw
+Next.js Server-Action-wire-protocol request would couple the suite to
+an unstable framework-internal protocol without adding to the guarantee
+already established.
+
+Three items are `NOT APPLICABLE`: open redirect (no dynamic redirect
+destination exists anywhere in the codebase — the login flow's `from`
+parameter is set but never consumed), image upload validation (no
+file-upload feature exists in V1 — product/bundle images are an
+admin-typed URL field), and session expiration (delegated entirely to
+Better Auth, no custom application session logic exists to test).
+
+No production code was changed by this gate.
+
+---
+
 # 36. Domain layer
 
 Business rules should not live exclusively inside React components.

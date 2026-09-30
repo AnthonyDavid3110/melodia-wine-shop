@@ -247,6 +247,47 @@ describe("createOrder — rejections", () => {
     });
   });
 
+  it("rejects a checkout submitted after the campaign closed between page load and submission (Gate 14E ABUSE-CHECKOUT-003)", async () => {
+    await withRollback(async (tx) => {
+      const campaign = await setupActiveCampaign(tx);
+      const { product } = await setupProduct(tx, campaign.id);
+
+      // The customer's page/cart still references the campaign that WAS
+      // active when they loaded it; an admin closes it (no other
+      // campaign becomes ACTIVE) before the customer submits —
+      // `neutralizeExistingActiveCampaigns` is the same helper
+      // `setupActiveCampaign` itself uses to enforce the single-
+      // ACTIVE-campaign invariant, reused here to flip this one
+      // campaign to DRAFT without introducing a second helper.
+      await neutralizeExistingActiveCampaigns(tx);
+
+      const before = await tx
+        .select()
+        .from(orderNumberCounters)
+        .where(eq(orderNumberCounters.year, 2026));
+
+      const result = await createOrder(
+        customerInput({
+          items: [{ type: "PRODUCT", id: product.id, quantity: 1 }],
+          campaignId: campaign.id,
+        }),
+        { type: "SYSTEM" },
+        "ONLINE",
+        tx,
+      );
+      expect(result).toEqual({ status: "rejected", reason: "no-active-campaign" });
+
+      const orderRows = await tx.select().from(orders).where(eq(orders.campaignId, campaign.id));
+      expect(orderRows).toHaveLength(0);
+
+      const after = await tx
+        .select()
+        .from(orderNumberCounters)
+        .where(eq(orderNumberCounters.year, 2026));
+      expect(after).toEqual(before);
+    });
+  });
+
   it("rejects a hidden (campaignProduct.active=false) product", async () => {
     await withRollback(async (tx) => {
       const campaign = await setupActiveCampaign(tx);
