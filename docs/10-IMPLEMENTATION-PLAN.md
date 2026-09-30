@@ -1851,6 +1851,58 @@ are referenced as evidence, never recreated.
 
 No production code was changed. No migration, no new dependency.
 
+## Phase 14 Gate 14F — CI (local implementation complete, remote verification pending)
+
+One sequential `quality` job (`.github/workflows/ci.yml`) reproduces the
+existing local quality gate on GitHub Actions: install (frozen
+lockfile) → format check → lint → typecheck → unit tests → PostgreSQL
+18 service → migrate → seed → DB integration tests → Playwright
+Chromium install → E2E tests → (upload `playwright-report/`/
+`test-results/` only on failure) → build. One disposable PostgreSQL
+service is shared sequentially by migrations, seed, DB tests, and E2E
+— never reset in between, matching this project's own established
+local development/test architecture (the same database DB tests just
+seeded is the one E2E runs against). Chosen over a multi-job
+architecture because the DB/E2E suites already run
+non-parallel (`fileParallelism: false`, `workers: 1`) for
+shared-state-safety reasons specific to this codebase's own history.
+
+Triggers: `pull_request`, `push` to `main`, `workflow_dispatch`.
+Permissions: `contents: read` only. Concurrency cancels obsolete runs
+on the same ref (`cancel-in-progress: true`, grouped by
+`github.ref` — different branches/PRs never cancel each other). Job
+timeout: 30 minutes. Node 22 is the CI reference runtime; pnpm is not
+pinned a second time — both come from `pnpm/setup`'s
+`runtime: node@22` plus the version already declared in
+`package.json`'s `packageManager` field. `pnpm/setup` is used instead
+of the previously-proposed `pnpm/action-setup` + `actions/setup-node`
+pair — a genuine Step 2 discovery: `pnpm/action-setup`'s own current
+documentation states it "remains the action to use for installing
+pnpm v10 and older," and this repository pins pnpm 12.
+
+**Zero GitHub repository secrets** — every CI environment value is a
+fixed, already-documented-as-non-secret synthetic value (matching
+`compose.yaml`/`.env.example`'s own local-development convention).
+Saferpay/Resend credentials are never provided; the E2E suite's
+existing fake-provider flags mean no CI run ever contacts a real
+provider. See `docs/05-ARCHITECTURE.md` §48 and `docs/09-SECURITY.md`
+§56 for the full architecture and security rationale.
+
+Local verification (this step): format/lint/typecheck/unit/DB/E2E/
+build all pass, exactly matching the pre-existing baseline (0 new lint
+warnings, no test-count regression). Workflow YAML structurally
+validated (parses correctly, all 14 steps in the intended order,
+passes the project's own Prettier check). Playwright retry/trace
+behavior deliberately left unchanged pending the first real CI run
+(Step 1 found `trace: "on-first-retry"` currently never fires locally
+since retries default to 0 — not addressed pre-emptively).
+
+**Gate 14F is NOT yet complete.** No production/test code was
+changed; no migration; no new dependency. A real GitHub Actions run
+has not yet occurred — local validation cannot prove the workflow
+executes correctly on GitHub's own infrastructure. Gate 14F remains
+open until that remote run passes.
+
 **Phase 14 is NOT complete.** Gates 14F–14G remain pending.
 
 ---

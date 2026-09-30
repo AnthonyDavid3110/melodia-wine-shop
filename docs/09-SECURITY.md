@@ -1271,6 +1271,24 @@ Example:
 
 or equivalent depending on selected package manager.
 
+> **Gate 14F implementation note (adopted, local implementation
+> complete — remote GitHub Actions verification still pending):** CI
+> (`.github/workflows/ci.yml`) installs with `pnpm install
+> --frozen-lockfile` — a lockfile/manifest mismatch fails the workflow
+> outright rather than silently regenerating `pnpm-lock.yaml`. **Zero
+> GitHub repository secrets are used anywhere in the workflow** — every
+> environment value it sets (database, Better Auth, app base URL) is a
+> fixed, already-documented-as-non-secret development/test value
+> (matching `compose.yaml`/`.env.example`'s own existing convention),
+> and Saferpay/Resend credentials are never provided at all, since the
+> E2E suite's existing fake-provider flags mean no CI run ever reaches
+> a real payment or email provider. The workflow requests only
+> `contents: read` — no write, no pull-request, no packages, no
+> deployment, no `id-token` permission. See `docs/05-ARCHITECTURE.md`
+> §48 for the full architecture. Gate 14F is not yet complete: local
+> validation is fully green, but no real GitHub Actions run has
+> occurred yet.
+
 ---
 
 # 57. Package scripts

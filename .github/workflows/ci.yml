@@ -1,0 +1,136 @@
+name: CI
+
+# Phase 14 Gate 14F. One sequential job reproduces the project's existing
+# local quality gate (format/lint/typecheck/unit/DB/E2E/build) — see
+# docs/05-ARCHITECTURE.md §48 and docs/10-IMPLEMENTATION-PLAN.md's Gate 14F
+# section for the full rationale behind every choice below (single job over
+# parallel jobs; one disposable PostgreSQL 18 service shared sequentially by
+# migrations/seed/DB tests/E2E, never reset between them; zero repository
+# secrets; fake payment/email providers; Node 22 as the CI reference runtime
+# while package.json's own engines.node stays an unpinned >=20.9.0 floor).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Local Postgres only — never Neon, never a persistent/external
+    # database. Credentials are the same intentionally-non-secret
+    # development-only values compose.yaml already uses locally.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: melodia
+          POSTGRES_PASSWORD: melodia_dev_only
+          POSTGRES_DB: melodia_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U melodia -d melodia_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Minimum synthetic environment the current application actually
+    # needs (verified empirically during Gate 14F Step 1 — see
+    # docs/09-SECURITY.md). None of these values are secret. Saferpay/
+    # Resend credentials are deliberately absent: the fake providers
+    # (already wired into playwright.config.ts's own webServer.env) mean
+    # no test or build path ever reaches a real provider.
+    env:
+      DATABASE_URL: postgresql://melodia:melodia_dev_only@localhost:5432/melodia_dev
+      DATABASE_URL_UNPOOLED: postgresql://melodia:melodia_dev_only@localhost:5432/melodia_dev
+      DATABASE_DRIVER: postgres
+      BETTER_AUTH_SECRET: ci-only-fixed-value-not-a-real-secret
+      BETTER_AUTH_URL: http://localhost:3000
+      APP_BASE_URL: http://localhost:3000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # pnpm/action-setup's own current README states it "remains the
+      # action to use for installing pnpm v10 and older" and directs
+      # newer projects to this successor action instead — this
+      # repository pins pnpm 12 (package.json "packageManager"), so
+      # pnpm/setup is the currently-correct choice, not action-setup +
+      # actions/setup-node. No explicit `version` input — read from
+      # "packageManager" instead of duplicating the pin here.
+      # `install: false` keeps dependency installation as its own
+      # explicit, frozen-lockfile step below rather than this action's
+      # own default (non-frozen) `pnpm install`.
+      - name: Set up pnpm and Node
+        uses: pnpm/setup@v3
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Non-mutating check only — `pnpm format` (without :check) writes
+      # files and must never be used as a CI step.
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # No database required for this suite (vitest.config.ts explicitly
+      # excludes src/infrastructure/database/integration/**).
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Apply database migrations
+        run: pnpm db:migrate
+
+      # Required by several DB-integration test files (and by the E2E
+      # suite) that deliberately reuse the real seeded ACTIVE campaign
+      # rather than creating their own — see docs/09-SECURITY.md.
+      - name: Seed database
+        run: pnpm db:seed
+
+      - name: DB integration tests
+        run: pnpm test:db
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Reuses the same migrated + seeded database DB tests just ran
+      # against — never reset in between, matching this project's own
+      # established local development/test architecture.
+      - name: E2E tests
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Build
+        run: pnpm build

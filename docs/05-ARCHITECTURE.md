@@ -2126,6 +2126,55 @@ Production deployment should not knowingly ship a broken build.
 
 Exact GitHub Actions configuration will be defined during implementation.
 
+> **Gate 14F implementation note (adopted, local implementation
+> complete — remote GitHub Actions verification still pending):** one
+> sequential `quality` job (`.github/workflows/ci.yml`) reproduces the
+> existing local quality gate exactly — format check, lint, typecheck,
+> unit tests, then one disposable PostgreSQL 18 service shared
+> sequentially by migrations, seed, DB integration tests, and the E2E
+> suite (never reset in between — deliberately matching this project's
+> own established local development architecture, not a fresh database
+> per phase), then build. Chosen over a multi-job architecture because
+> the DB/E2E suites already run with `fileParallelism: false`/
+> `workers: 1` for shared-state-safety reasons specific to this
+> codebase's own history — splitting jobs would either duplicate the
+> Postgres+migrate+seed sequence or require passing live service state
+> across jobs, both worse than one sequential job for a small project.
+>
+> Triggers: `pull_request`, `push` to `main`, `workflow_dispatch`.
+> Permissions: `contents: read` only. Concurrency cancels obsolete runs
+> on the same ref. Node 22 is the CI reference runtime (`pnpm/setup`'s
+> `runtime: node@22` input) — `package.json`'s own `engines.node` stays
+> an unpinned `>=20.9.0` floor, untouched by this gate. pnpm itself is
+> **not** pinned a second time in the workflow — `pnpm/setup` reads the
+> exact version from `package.json`'s `packageManager` field.
+> `pnpm/setup` (not `pnpm/action-setup` + `actions/setup-node`) is used
+> because `pnpm/action-setup`'s own current documentation states it
+> "remains the action to use for installing pnpm v10 and older," and
+> this repository pins pnpm 12.
+>
+> **Zero GitHub repository secrets.** Every CI environment value
+> (`DATABASE_URL`/`DATABASE_URL_UNPOOLED`/`DATABASE_DRIVER`/
+> `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL`/`APP_BASE_URL`) is a fixed,
+> intentionally-non-secret synthetic value — the same convention
+> `compose.yaml`/`.env.example` already document for local development.
+> Saferpay and Resend credentials are never provided: the E2E suite's
+> existing fake-provider flags (`E2E_FAKE_PAYMENT_PROVIDER`,
+> `E2E_FAKE_EMAIL_PROVIDER`, already wired into `playwright.config.ts`'s
+> own `webServer.env`) mean no test or build path ever reaches a real
+> provider — verified empirically during Step 1, not merely by reading
+> the code.
+>
+> **Gate 14F is not yet complete.** Every check above has been verified
+> locally (format/lint/typecheck/unit/DB/E2E/build all green, matching
+> the existing baseline exactly, zero new lint warnings), and the
+> workflow YAML has been structurally validated, but **a real GitHub
+> Actions run has not yet occurred** — local validation cannot prove
+> the workflow executes correctly on GitHub's own infrastructure
+> (service container networking, runner-specific timing, outbound
+> network for `next/font/google`, etc.). Gate 14F remains open until
+> that remote run passes.
+
 ---
 
 # 49. Testing strategy
