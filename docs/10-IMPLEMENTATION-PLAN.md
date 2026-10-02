@@ -2060,6 +2060,83 @@ publicly launched yet.
 
 ---
 
+## Phase 15 Gate 15A — repository production-config readiness (implementation complete / remote CI verification pending)
+
+Repository-local readiness review before any external infrastructure
+action (Neon/Vercel/DNS/Resend/Worldline), per the approved Phase 15
+audit. `.env.example` was reconciled against the full `src/lib/env.ts`
+schema and found already complete and accurate — no change needed.
+Node runtime: `package.json`'s `"node": ">=20.9.0"` stays an unpinned
+floor; no `.nvmrc`/`.node-version`/`vercel.json` added — Node 22 will
+be selected manually in Vercel's project settings during Gate 15C,
+matching CI's own pin. Migration path (`drizzle-kit migrate` against
+`DATABASE_URL_UNPOOLED`, never chained to seed) and admin bootstrap
+(`pnpm bootstrap:admin`, interactive-only, public signup hard-disabled)
+were both re-confirmed ready for Gates 15B/15E with no change needed.
+
+**Payment fake-provider production-safety**: added
+`src/infrastructure/payments/online-payments.test.ts`, proving the
+exported `isOnlinePaymentAvailable()` — which shares the textually
+identical `NODE_ENV !== "production" && E2E_FAKE_PAYMENT_PROVIDER === "true"`
+guard as the private `getProvider()` — cannot report the fake provider
+as available when `NODE_ENV=production`, even with the opt-in set and
+all real `SAFERPAY_*` variables cleared first (since `serverEnv` is a
+module-load-time singleton). This executes the exported availability
+guard; the private provider-selection path shares the same guard by
+direct code inspection, not by this test. A single inert
+`vi.mock("../database/client", () => ({ db: {} }))` neutralizes
+`online-payments.ts`'s unrelated eager `db` import (a value import,
+unlike `order-confirmation.ts`'s type-only one) so the module can load
+in a DB-less unit-test process — never dereferenced by the function
+under test.
+
+**Dependency audit**: `pnpm audit` found 11 findings, including one
+**CRITICAL** direct-runtime finding — RCE in `next/og`'s
+`ImageResponse` (GHSA-vcvr-r3jv-pc5j), affecting the then-installed
+`next@16.3.5`. `ImageResponse`/`next/og` is not used anywhere in this
+application's own code, but `next` is a direct runtime dependency, so
+this was treated as blocking per the gate's own stop condition.
+**Remediation**: upgraded `next` to `16.3.8` (the current Active-LTS
+security release at the time, beyond the `16.3.6` minimum fix) via a
+single targeted `pnpm add next@16.3.8` — `package.json`/`pnpm-lock.yaml`
+changed only for `next` itself (all platform `@next/swc-*` binaries,
+`@next/env`) and `better-auth`'s peer-resolution key updating to
+reference the new `next` version (not a `better-auth` version change).
+Re-running the audit confirmed the CRITICAL finding fully resolved,
+with no new finding introduced by the upgrade. The remaining 10
+findings (4 HIGH, 6 moderate — all `brace-expansion`/`esbuild`/
+`fast-uri`/`ip-address`) are confirmed, via `pnpm why`, to be entirely
+devDependency/build-tooling (eslint/minimatch lint chains, `drizzle-kit`'s
+dev-only esbuild loader, the `shadcn` CLI's own toolchain) — never
+present in the production runtime bundle. Documented here as an
+accepted, non-blocking residual finding, not hidden.
+
+Full validation after the upgrade: `next typegen` regenerated (new
+Next.js version), `format:check`/`lint` (0 errors, the same 6
+pre-existing warnings)/`typecheck` all clean; unit (68 files, 651
+tests), DB (29 files, 309 tests), and E2E (96 tests, 1 isolated
+environmental flake — `net::ERR_NETWORK_IO_SUSPENDED`, reproduced as
+passing deterministically when re-run in isolation, not a Next.js
+regression) all green; `pnpm build` clean, identical route structure.
+No application/business/test behavior changed by the upgrade itself —
+one new test file only.
+
+No external service was accessed. No production infrastructure was
+created.
+
+**Gate 15A implementation and local validation are COMPLETE.** A fresh
+GitHub Actions run against the exact commit carrying this Next.js
+upgrade is still required before Gate 15A is considered fully
+verified — the last known-green CI run (Gate 14F, run `36740067466`)
+predates this upgrade and does not evidence it. **Gate 15A remote CI
+verification: PENDING.**
+
+**Phase 15 is IN PROGRESS.** Gate 15A's implementation is complete,
+pending remote CI verification; Gate 15B (production database / Neon
+provisioning) has not started.
+
+---
+
 # 92. Phase 16 — Campaign content
 
 Replace all placeholders.
@@ -2483,7 +2560,8 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15+ Not started
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A implementation done, remote CI verification pending, 15B+ pending)
+    Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
 CampaignProduct configuration, Bundle administration, Seller master
