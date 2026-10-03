@@ -2060,7 +2060,7 @@ publicly launched yet.
 
 ---
 
-## Phase 15 Gate 15A — repository production-config readiness (implementation complete / remote CI verification pending)
+## Phase 15 Gate 15A — repository production-config readiness (verified complete)
 
 Repository-local readiness review before any external infrastructure
 action (Neon/Vercel/DNS/Resend/Worldline), per the approved Phase 15
@@ -2124,16 +2124,20 @@ one new test file only.
 No external service was accessed. No production infrastructure was
 created.
 
-**Gate 15A implementation and local validation are COMPLETE.** A fresh
-GitHub Actions run against the exact commit carrying this Next.js
-upgrade is still required before Gate 15A is considered fully
-verified — the last known-green CI run (Gate 14F, run `36740067466`)
-predates this upgrade and does not evidence it. **Gate 15A remote CI
-verification: PENDING.**
+**Gate 15A is now fully verified.** A fresh GitHub Actions run against
+the exact commit carrying this Next.js upgrade
+(`a6e7a3b6bf8b0ab6b914a7d539447853a1e2a534`) completed successfully —
+run `37055659995` (#5), commit SHA matched exactly, every step green:
+format, lint, type generation, typecheck, unit tests, migrations,
+seed, DB integration tests, Chromium install, E2E tests, and build.
+This supersedes the prior Gate 14F run (`36740067466`), which predated
+the Next.js upgrade and could not evidence it.
 
-**Phase 15 is IN PROGRESS.** Gate 15A's implementation is complete,
-pending remote CI verification; Gate 15B (production database / Neon
-provisioning) has not started.
+**Gate 15A is COMPLETE** — implementation, local validation, remote CI
+verification, and final verification all complete.
+
+**Phase 15 is IN PROGRESS.** Gate 15A is complete; Gate 15B
+(production database / Neon provisioning) has not started.
 
 ---
 
@@ -2560,7 +2564,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A implementation done, remote CI verification pending, 15B+ pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A done, 15B+ pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
