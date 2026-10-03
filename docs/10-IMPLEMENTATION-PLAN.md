@@ -2137,20 +2137,60 @@ the Next.js upgrade and could not evidence it.
 verification, and final verification all complete.
 
 **Phase 15 is IN PROGRESS.** Gate 15A is complete; Gate 15B
-(production database / Neon provisioning) is in progress — see below.
+(production database / Neon provisioning) is complete — see below.
+Gate 15C has not started.
 
 ---
 
-## Phase 15 Gate 15B — production database / Neon provisioning (IN PROGRESS)
+## Phase 15 Gate 15B — production database / Neon provisioning (COMPLETE)
 
 Step 1 (repository inspection) found no implementation change required
 for provisioning itself. The Gate 10C-B2 staging Neon project
-(`05-ARCHITECTURE.md` §11) still exists and must not be reused as
-production; a separate production Neon project is being provisioned.
-Production migration has not started.
+(`05-ARCHITECTURE.md` §11) still exists, was not touched, and must not
+be reused as production.
 
-**Safety prerequisite — development seed hardening (implemented,
-pending review).** The seed script previously refused only when
+**Production database.** A separate Neon project,
+`melodia-wine-shop-production`, was provisioned manually by the project
+owner: branch `production` (default), region AWS Europe Central 1
+(Frankfurt), PostgreSQL 18, database `neondb`, role `neondb_owner`.
+Connection strings were never pasted in chat, written to `.env.local`,
+or committed: the direct connection string was entered through a
+hidden PowerShell prompt into a single process environment and cleared
+afterwards (`drizzle-kit`'s own `.env.local` loading does not override
+an already-set variable, so the local development value was not used).
+
+Verification used a read-only check script outside the repository that
+printed only non-secret facts. Before migration it confirmed: a
+non-local Neon host, the direct (non-`-pooler`) endpoint, region
+`eu-central-1`, `sslmode=require`, the expected database/role/major
+version, TLS active (TLSv1.3), and no tables in any user schema — which
+also ruled out the staging project. A first attempt was stopped by
+this check because the pooled string had been supplied; nothing ran
+against the database until the direct endpoint passed.
+
+`pnpm db:migrate` then applied the 7 committed migrations
+(`0000_fuzzy_masked_marvel` → `0006_medical_elektra`) successfully. The
+post-migration check confirmed `drizzle.__drizzle_migrations` holds 7
+rows matching the committed journal, exactly the 24 expected `public`
+tables with no other user schemas, and **0 rows across every `public`
+table** — no development/demo data. `pnpm db:seed` was not run against
+production. No migration, schema, or application code changed.
+
+**Recovery capability (current).** Neon Free plan: point-in-time
+restore with 6-hour history retention, plus manual snapshots;
+scheduled snapshots are not available on this plan. This is acceptable
+for provisioning and pre-launch testing, but **the production
+backup/restore policy remains an open launch requirement**
+(`09-SECURITY.md` §72/§73, TBD-SEC-007): it must be resolved before
+real customer orders are accepted. 6-hour PITR does not close it.
+
+Noted for later: `pg` prints a deprecation warning that
+`sslmode=require` is currently treated as `verify-full` and will adopt
+weaker libpq semantics in `pg` v9 — revisit the connection-string
+`sslmode` when upgrading `pg`.
+
+**Safety prerequisite — development seed hardening (complete — commit
+`15c54c1`, CI run `37157716404`).** The seed script previously refused only when
 `NODE_ENV === "production"`, a check that ran after the database client
 had already been imported. `pnpm db:seed` runs through `tsx` from a
 local shell where `NODE_ENV` is normally unset, so a shell whose
@@ -2607,7 +2647,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A done, 15B in progress, 15C+ pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A done, 15B done, 15C+ pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
