@@ -2137,7 +2137,50 @@ the Next.js upgrade and could not evidence it.
 verification, and final verification all complete.
 
 **Phase 15 is IN PROGRESS.** Gate 15A is complete; Gate 15B
-(production database / Neon provisioning) has not started.
+(production database / Neon provisioning) is in progress — see below.
+
+---
+
+## Phase 15 Gate 15B — production database / Neon provisioning (IN PROGRESS)
+
+Step 1 (repository inspection) found no implementation change required
+for provisioning itself. The Gate 10C-B2 staging Neon project
+(`05-ARCHITECTURE.md` §11) still exists and must not be reused as
+production; a separate production Neon project is being provisioned.
+Production migration has not started.
+
+**Safety prerequisite — development seed hardening (implemented,
+pending review).** The seed script previously refused only when
+`NODE_ENV === "production"`, a check that ran after the database client
+had already been imported. `pnpm db:seed` runs through `tsx` from a
+local shell where `NODE_ENV` is normally unset, so a shell whose
+database URL accidentally pointed at a real database would have been
+seeded with fictional demo data. Inspection also established that the
+seed writes through `./client`, i.e. the pooled `DATABASE_URL` with the
+`DATABASE_DRIVER`-selected driver — not `DATABASE_URL_UNPOOLED` as
+`.env.example`/`env.ts` comments previously stated (corrected).
+
+Seeding is now forbidden unless explicitly authorized
+(`src/infrastructure/database/seed-guard.ts`), evaluated before the
+database client or schema is imported:
+
+- `NODE_ENV=production` → always refused (kept as defense in depth);
+- `ALLOW_DATABASE_SEED=true` absent from the invoking shell → refused;
+- the value is captured before `.env.local` is loaded, so an
+  authorization stored in `.env.local` is ignored (and the refusal says
+  so) — it can never silently apply to a later run whose URL changed;
+- any value other than exactly `true` → refused.
+
+Local usage: `ALLOW_DATABASE_SEED=true pnpm db:seed`. CI sets the
+variable on its "Seed database" step only. Neither Playwright nor any
+test invokes the seed. Target-hostname inspection was considered and
+rejected as the primary safeguard: it needs hard-coded provider
+identifiers and cannot distinguish the staging Neon project from the
+production one. `seed-guard.test.ts` covers the decision function and
+runs the real `seed.ts` entry point in a child process (throwaway
+working directory, unreachable database URL, an invalid
+`DATABASE_DRIVER` tripwire proving refusal happens before the client
+module loads) — no test connects to any database.
 
 ---
 
@@ -2564,7 +2607,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A done, 15B+ pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A done, 15B in progress, 15C+ pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

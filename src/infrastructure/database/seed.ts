@@ -5,10 +5,13 @@
  * bundle, a handful of sellers. Never seeds Orders/Payments/Settlements
  * (CLAUDE.md §58 — no fake commercial data, ever).
  *
- * Run with `pnpm db:seed`. Requires DATABASE_URL/DATABASE_DRIVER to
- * point at a real (development) database — this script refuses to run
- * against production and is never invoked automatically by the app,
- * build, migrations, or deployment.
+ * Run with `ALLOW_DATABASE_SEED=true pnpm db:seed`. Writes to whichever
+ * database DATABASE_URL/DATABASE_DRIVER point at (via ./client — the
+ * same pooled-URL client the app uses, not DATABASE_URL_UNPOOLED). It
+ * refuses, before importing the database client, unless the invoking
+ * shell explicitly authorizes it, and always refuses under
+ * NODE_ENV=production — see seed-guard.ts. Never invoked automatically
+ * by the app, build, migrations, or deployment.
  *
  * NOT idempotent by design (fixed slugs/names describing one specific
  * demo campaign) — running it twice against the same database is
@@ -18,18 +21,31 @@
  * nothing is, never a partial demo dataset.
  */
 import { config } from "dotenv";
+import { SEED_AUTHORIZATION_VARIABLE, decideSeedAuthorization } from "./seed-guard";
+
+// Captured before .env.local is loaded, so the authorization can only
+// come from the invoking shell — never from a file that would silently
+// authorize every future run.
+const shellSeedAuthorization = process.env[SEED_AUTHORIZATION_VARIABLE];
 
 // Run via `tsx` directly (not Next.js), so .env.local is not loaded
 // automatically — load it before importing the database client.
 config({ path: ".env.local" });
 
+const seedAuthorization = decideSeedAuthorization({
+  shellAuthorization: shellSeedAuthorization,
+  loadedAuthorization: process.env[SEED_AUTHORIZATION_VARIABLE],
+  nodeEnv: process.env.NODE_ENV,
+});
+
+if (!seedAuthorization.allowed) {
+  console.error(seedAuthorization.reason);
+  process.exit(1);
+}
+
 const { db } = await import("./client");
 const { bundleItems, bundles, campaignProducts, campaignSellers, campaigns, products, sellers } =
   await import("./schema");
-
-if (process.env.NODE_ENV === "production") {
-  throw new Error("Refusing to run the development seed script with NODE_ENV=production.");
-}
 
 const demoWines = [
   {

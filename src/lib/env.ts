@@ -21,9 +21,10 @@ export const serverSchema = z.object({
 
   /**
    * Neon direct/unpooled connection string. Used only by drizzle-kit
-   * (migrations) and the seed script — never by the application at
-   * request time. A pooled connection string must not be used for
-   * migrations (Neon's own guidance: it can cause errors).
+   * (migrations) — never by the application at request time, nor by
+   * the seed script (which uses DATABASE_URL via the database client).
+   * A pooled connection string must not be used for migrations (Neon's
+   * own guidance: it can cause errors).
    */
   DATABASE_URL_UNPOOLED: z.string().url().optional(),
 

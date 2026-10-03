@@ -11,9 +11,15 @@ cp .env.example .env.local   # DATABASE_URL / DATABASE_URL_UNPOOLED / DATABASE_D
 docker compose up -d         # starts local PostgreSQL (never used in production)
 pnpm db:migrate               # applies migrations to local Postgres
 pnpm test:db                  # PostgreSQL integration tests (needs the two steps above)
-pnpm db:seed                  # optional — fictional demo campaign/products/sellers
+ALLOW_DATABASE_SEED=true pnpm db:seed   # optional — fictional demo campaign/products/sellers
 pnpm dev
 ```
+
+`pnpm db:seed` refuses unless `ALLOW_DATABASE_SEED=true` is set for that
+one command in the invoking shell (a value in `.env.local` is ignored by
+design), and always refuses under `NODE_ENV=production`. It writes to
+whatever `DATABASE_URL` points at — never enable it against production.
+PowerShell: `$env:ALLOW_DATABASE_SEED='true'; pnpm db:seed; Remove-Item Env:ALLOW_DATABASE_SEED`.
 
 `pnpm test` (plain unit tests) never needs PostgreSQL running.
 `pnpm test:db` does — it's a separate suite/config specifically for

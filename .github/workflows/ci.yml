@@ -118,8 +118,12 @@ jobs:
       # Required by several DB-integration test files (and by the E2E
       # suite) that deliberately reuse the real seeded ACTIVE campaign
       # rather than creating their own — see docs/09-SECURITY.md.
+      # ALLOW_DATABASE_SEED is scoped to this one step: the seed refuses
+      # without it (Gate 15B safety prerequisite, seed-guard.ts).
       - name: Seed database
         run: pnpm db:seed
+        env:
+          ALLOW_DATABASE_SEED: "true"
 
       - name: DB integration tests
         run: pnpm test:db
