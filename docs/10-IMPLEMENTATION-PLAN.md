@@ -2224,7 +2224,7 @@ module loads) — no test connects to any database.
 
 ---
 
-## Phase 15 Gate 15C — Vercel production deployment (IN PROGRESS)
+## Phase 15 Gate 15C — Vercel production deployment (COMPLETE)
 
 **15C-A — readiness inspection (complete).** Read-only review found no
 application or security change required for a first deployment on the
@@ -2251,7 +2251,81 @@ a Vercel project environment variable during provisioning so Vercel
 uses `packageManager`. No custom install command and no `vercel.json`
 are needed.
 
-**15C-C onward — Vercel provisioning: not started.**
+**15C-C — first production deployment (COMPLETE).** The project owner
+created the Vercel project (`melodia-wine-shop`, Production
+environment, production branch `main`, framework Next.js, root
+directory `./`), connected it to this GitHub repository, and set
+`ENABLE_EXPERIMENTAL_COREPACK=1` plus the production environment
+variables (`DATABASE_URL`, `DATABASE_DRIVER`, `BETTER_AUTH_SECRET`,
+`BETTER_AUTH_URL`, `RATE_LIMIT_SECRET`, `APP_BASE_URL`) — names only
+recorded here, values never pasted anywhere in this repository or in
+chat. `DATABASE_URL` is the production Neon **pooled** connection
+string (`melodia-wine-shop-production`, Gate 15B); `DATABASE_DRIVER` is
+`neon`. `BETTER_AUTH_URL`/`APP_BASE_URL` are temporarily set to the
+Vercel-assigned origin below, pending the final domain.
+`DATABASE_URL_UNPOOLED`, `ALLOW_DATABASE_SEED`,
+`E2E_FAKE_PAYMENT_PROVIDER`, and `E2E_FAKE_EMAIL_PROVIDER` are
+deliberately **not** configured in Vercel — migrations and the
+development seed are never run through the deployed app, and the fake
+providers must never exist outside CI/Playwright. `NODE_ENV` is
+Vercel-managed, not set manually. Saferpay and Resend production
+credentials are intentionally not part of this deployment stage.
+
+Commit `48e68c8481c2314673c548a0285f2c39687f8f7e` ("chore: pin Node 22
+runtime") built and deployed successfully: Next.js 16.3.8, pnpm 12.4.2
+activated via Corepack (`engines.node: "22.x"` respected), TypeScript
+compilation, static generation, and deployment all succeeded.
+
+The initial deployment surfaced a Better Auth warning that the
+configured `BETTER_AUTH_SECRET` was not accepted as sufficiently
+strong for production. The secret was rotated (never pasted here); the
+redeployment completed with no secret-length or low-entropy warning.
+
+**Production smoke test** (read-only, against the temporary Vercel
+origin below — see §9 "Deferred" for the final-domain cutover):
+
+| Check | Request | Result | Status |
+|---|---|---|---|
+| Public homepage | `GET /` | `200`, renders "La vente de vins n'est actuellement pas ouverte." (no active campaign — expected) | PASS |
+| Checkout protection | `HEAD /commande` | `307` → `/` (no active campaign) | PASS |
+| Admin auth boundary | `/admin` | redirects to `/admin/connexion?from=%2Fadmin` (no admin bootstrapped yet) | PASS |
+| Fake Saferpay isolation | `GET /test/fake-saferpay` | `404` (the route can appear in the build's route manifest; the production runtime refuses it regardless) | PASS |
+| Security headers | `GET /` | CSP (`object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`), `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` all present | PASS |
+
+This is a deployment smoke/security-header verification, not a
+penetration test or a complete production security audit.
+
+**Production Neon verification** (read-only, via Neon's SQL Editor,
+post-deployment): `melodia-wine-shop-production`, branch `production`,
+database `neondb`, region AWS Europe Central 1 (Frankfurt), PostgreSQL
+18 — the same project Gate 15B provisioned, confirmed not re-migrated
+or reseeded. Business row counts: `campaigns` 0, `products` 0,
+`sellers` 0, `orders` 0, `order_items` 0 — no demo data, no real
+customer data. No migration or seed was run as part of this gate.
+
+**Current production exposure state**: the application is reachable at
+`https://melodia-wine-shop.vercel.app` (temporary Vercel-assigned
+origin, **not** the final public domain) with no active campaign, no
+orderable checkout, no production admin account, no Saferpay/Resend
+production configuration, and zero business data. This is a controlled
+production infrastructure deployment, **not** the public launch of the
+wine sale — no campaign was or should be activated.
+
+Repository changes required for this gate: **NONE** — Gate 15C-A/15C-B
+already made the repository fully deployment-ready; 15C-C was entirely
+external Vercel/Neon verification.
+
+**Remaining before public launch** (not exhaustive — see each
+referenced item's own section for authoritative scope): final domain/
+DNS for `vins.ecmelodia.ch` and the corresponding `BETTER_AUTH_URL`/
+`APP_BASE_URL` cutover (§87); production admin bootstrap via
+`pnpm bootstrap:admin` (§89); Resend production activation/
+verification; Saferpay LIVE configuration (gated on `TBD-PAY-001`,
+`08-PAYMENTS.md`); **`TBD-SEC-007` backup/restore policy — still
+OPEN, not resolved by this gate** (Neon Free-plan 6-hour PITR only, no
+scheduled snapshots — see Gate 15B above); final production content
+review; campaign creation and activation. Gate 15D onward (domain/DNS
+and later) has not started.
 
 ---
 
@@ -2678,7 +2752,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A done, 15B done, 15C in progress, 15D+ pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C done — first production deployment live, no active campaign — 15D+ pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
