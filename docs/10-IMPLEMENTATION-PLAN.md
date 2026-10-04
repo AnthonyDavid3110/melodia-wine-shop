@@ -2138,7 +2138,7 @@ verification, and final verification all complete.
 
 **Phase 15 is IN PROGRESS.** Gate 15A is complete; Gate 15B
 (production database / Neon provisioning) is complete — see below.
-Gate 15C has not started.
+Gate 15C (Vercel production deployment) is in progress.
 
 ---
 
@@ -2221,6 +2221,37 @@ runs the real `seed.ts` entry point in a child process (throwaway
 working directory, unreachable database URL, an invalid
 `DATABASE_DRIVER` tripwire proving refusal happens before the client
 module loads) — no test connects to any database.
+
+---
+
+## Phase 15 Gate 15C — Vercel production deployment (IN PROGRESS)
+
+**15C-A — readiness inspection (complete).** Read-only review found no
+application or security change required for a first deployment on the
+generated `*.vercel.app` domain: with an empty production database no
+campaign is active, so nothing is orderable, and `/admin` is reachable
+only through login (sign-up disabled, no admin yet). The only
+repository change identified was the Node runtime pin below.
+
+**15C-B — production runtime pin (COMPLETE).**
+`package.json` `engines.node` is now `22.x` (major only), superseding
+the Gate 15A decision to keep `>=20.9.0` and select Node 22 in Vercel's
+project settings. Current Vercel documentation states that
+`engines.node` overrides the project-settings Node version and that an
+open range resolves to the latest available major — so `>=20.9.0`
+could have deployed on Node 24. Node 22 is the validated runtime for
+the application's `fr-CH` CHF formatting: Node 22.23.3 produces the
+expected `10'000`, whereas Node 24.15.0 produced a different grouping
+separator in the existing CHF tests. CI already runs Node 22.
+
+pnpm stays pinned as `pnpm@12.4.2` through `packageManager`; the
+lockfile is unchanged. Because Vercel's automatic lockfile detection
+does not cover pnpm 12, `ENABLE_EXPERIMENTAL_COREPACK=1` will be set as
+a Vercel project environment variable during provisioning so Vercel
+uses `packageManager`. No custom install command and no `vercel.json`
+are needed.
+
+**15C-C onward — Vercel provisioning: not started.**
 
 ---
 
@@ -2647,7 +2678,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A done, 15B done, 15C+ pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A done, 15B done, 15C in progress, 15D+ pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

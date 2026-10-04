@@ -2144,10 +2144,11 @@ Exact GitHub Actions configuration will be defined during implementation.
 > Triggers: `pull_request`, `push` to `main`, `workflow_dispatch`.
 > Permissions: `contents: read` only. Concurrency cancels obsolete runs
 > on the same ref. `ubuntu-latest`, 30-minute job timeout. Node 22 is
-> the CI reference runtime (`pnpm/setup`'s `runtime: node@22` input) —
-> `package.json`'s own `engines.node` stays an unpinned `>=20.9.0`
-> floor, untouched by this gate. pnpm itself is **not** pinned a second
-> time in the workflow — `pnpm/setup` reads the exact version from
+> the CI reference runtime (`pnpm/setup`'s `runtime: node@22` input),
+> matching `package.json`'s `engines.node` `22.x` pin (Phase 15 Gate
+> 15C-B), which also fixes the Vercel production runtime. pnpm itself
+> is **not** pinned a second time in the workflow — `pnpm/setup` reads
+> the exact version from
 > `package.json`'s `packageManager` field, and installs with
 > `pnpm install --frozen-lockfile` as its own explicit step. `pnpm/setup`
 > (not `pnpm/action-setup` + `actions/setup-node`) is used because

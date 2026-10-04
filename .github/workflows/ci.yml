@@ -6,8 +6,8 @@ name: CI
 # section for the full rationale behind every choice below (single job over
 # parallel jobs; one disposable PostgreSQL 18 service shared sequentially by
 # migrations/seed/DB tests/E2E, never reset between them; zero repository
-# secrets; fake payment/email providers; Node 22 as the CI reference runtime
-# while package.json's own engines.node stays an unpinned >=20.9.0 floor).
+# secrets; fake payment/email providers; Node 22, matching package.json's
+# engines.node "22.x" pin that Vercel production also uses — Gate 15C-B).
 
 on:
   pull_request:
