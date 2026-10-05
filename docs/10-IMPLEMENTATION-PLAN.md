@@ -2324,8 +2324,144 @@ verification; Saferpay LIVE configuration (gated on `TBD-PAY-001`,
 `08-PAYMENTS.md`); **`TBD-SEC-007` backup/restore policy — still
 OPEN, not resolved by this gate** (Neon Free-plan 6-hour PITR only, no
 scheduled snapshots — see Gate 15B above); final production content
-review; campaign creation and activation. Gate 15D onward (domain/DNS
-and later) has not started.
+review; campaign creation and activation.
+
+## Phase 15 Gate 15D — final domain cutover (COMPLETE)
+
+**Final / authoritative production origin:** `https://vins.ecmelodia.ch`.
+**Vercel-generated deployment/project origin:** `https://melodia-wine-shop.vercel.app`
+— still reachable (not removed, no redirect configured or claimed), but no
+longer the authoritative application origin.
+
+**15D-A — preflight (complete).** Read-only inspection established: the
+application derives every authoritative absolute URL from exactly two
+server-only environment variables, never from `VERCEL_URL`,
+`VERCEL_PROJECT_PRODUCTION_URL`, any `NEXT_PUBLIC_*` variable, or
+request `Host`/`X-Forwarded-Host` headers. `BETTER_AUTH_URL` is
+Better Auth's `baseURL` and its sole `trustedOrigins` entry
+(`src/infrastructure/auth/config.ts`), read once at module load.
+`APP_BASE_URL` builds Saferpay's `ReturnUrl`
+(`/commande/retour?rt=...`) and `NotifyUrl`
+(`/api/payments/saferpay/notify/...`) via `src/lib/app-url.ts`'s
+`appUrl()`, read at runtime on each online-payment initialization.
+Security headers/CSP are same-origin (`'self'`) rules, unaffected by
+which domain serves the app. **No application code change was
+required for the domain cutover.**
+
+This step also found and resolved a repository documentation
+contradiction on DNS authority: `README.md` previously stated
+Infomaniak handled DNS for `vins.ecmelodia.ch`, while
+`docs/09-SECURITY.md`'s Gate 11A record documented the authoritative
+zone as Wix. External verification confirmed:
+
+**Authoritative DNS provider: Wix.** Nameservers for `ecmelodia.ch`:
+`ns10.wixdns.net`, `ns11.wixdns.net`. `README.md` has been corrected
+accordingly. Infomaniak's role, where documented elsewhere, remains
+limited to existing mail infrastructure — not DNS hosting — and that
+distinction is unchanged by this gate.
+
+**15D-B — Vercel domain attachment + DNS record (complete).**
+`vins.ecmelodia.ch` was added to the existing `melodia-wine-shop`
+Vercel project (Production environment). Vercel requested exactly one
+record:
+
+    CNAME  vins  ->  50b80014429e32ac.vercel-dns-017.com.
+
+That single record was added to the authoritative Wix DNS zone — no
+root-domain record, `www` record, MX record, or existing
+Resend-related DNS record was changed; no nameserver migration was
+performed. Public resolution confirmed propagation
+(`dig CNAME vins.ecmelodia.ch +short` → the value above); Vercel
+reported `vins.ecmelodia.ch` as a valid configuration in Production.
+The existing ECM Wix website remained unaffected throughout.
+
+**15D-C — final-origin environment cutover + redeployment (complete).**
+Once the domain was DNS-valid and HTTPS-reachable, exactly two
+Production environment variables were changed in Vercel:
+
+    BETTER_AUTH_URL=https://vins.ecmelodia.ch
+    APP_BASE_URL=https://vins.ecmelodia.ch
+
+(no trailing slash, Production scope only). `DATABASE_URL`,
+`DATABASE_DRIVER`, `BETTER_AUTH_SECRET`, `RATE_LIMIT_SECRET`, and
+`ENABLE_EXPERIMENTAL_COREPACK` were not touched.
+`DATABASE_URL_UNPOOLED`, `ALLOW_DATABASE_SEED`,
+`E2E_FAKE_PAYMENT_PROVIDER`, `E2E_FAKE_EMAIL_PROVIDER` remain
+intentionally absent from Vercel; `NODE_ENV` remains Vercel-managed.
+
+A clean production redeployment (no build cache) was triggered from
+`main` at commit `e3cac2d`: pnpm 12.4.2 activated via
+`ENABLE_EXPERIMENTAL_COREPACK`, lockfile verified (979 entries, up to
+date), Next.js 16.3.8 build compiled successfully, TypeScript checked
+successfully, static generation completed for all 27 pages, deployment
+completed — no Better Auth secret warning, no configuration error, no
+missing-`BETTER_AUTH_URL` error, no missing-database error. No
+migration and no seed ran as part of this redeployment. (Repository
+pin: `engines.node = "22.x"`; exact Vercel-runtime Node patch version
+not independently recorded here.)
+
+Minimal post-cutover runtime verification against the final domain:
+homepage (`200`), `/admin` (`307` → `/admin/connexion?from=%2Fadmin`,
+auth boundary intact), `/commande` (`307` → `/`, no active campaign).
+No admin was created, no campaign was created or activated, no order
+was created.
+
+**15D-D — final-domain smoke/security verification (complete).**
+Repeated against `https://vins.ecmelodia.ch`:
+
+| Check | Result | Status |
+|---|---|---|
+| DNS (`dig CNAME`) | resolves to the Vercel target above | PASS |
+| Homepage / TLS | `200`, valid TLS | PASS |
+| Admin auth boundary | `307` → `/admin/connexion?from=%2Fadmin` | PASS |
+| Checkout protection | `307` → `/` (no active campaign) | PASS |
+| Fake Saferpay isolation | `404` (route may exist in the build manifest; production refuses it regardless) | PASS |
+| Security headers | CSP (`object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`, same policy as the temporary origin), `Permissions-Policy`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security: max-age=63072000`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` all present | PASS |
+
+This is a deployment smoke/security-header verification, not a
+penetration test or a complete production security audit.
+
+**Better Auth final state.** `https://vins.ecmelodia.ch` is now the
+sole Better Auth `baseURL`/`trustedOrigins` entry. The implementation
+was not changed to trust both domains. No production admin existed
+before or during the cutover, so there was no admin-session migration
+concern.
+
+**Saferpay final-domain behavior.** Future `initiateOnlinePayment()`
+calls will construct `ReturnUrl`/`NotifyUrl` under
+`https://vins.ecmelodia.ch`. **Saferpay LIVE remains unconfigured** —
+no real LIVE callback has been tested, and Saferpay production
+readiness is not claimed. Any Saferpay Backoffice requirement to
+separately register callback/domain URLs remains subject to
+verification during the later Saferpay LIVE gate (`TBD-PAY-001`).
+
+**Resend/`EMAIL_FROM`.** The domain cutover required no Resend DNS
+change — Resend's verified domain is the root `ecmelodia.ch`, already
+configured in the same authoritative Wix DNS zone, unaffected by the
+`vins` subdomain record added in 15D-B. The `.env.example` /
+`docs/09-SECURITY.md` sender-address inconsistency identified in
+15D-A is **resolved from authoritative repository evidence**:
+`docs/09-SECURITY.md` §61 records `vins@ecmelodia.ch` as the actual
+address verified and smoke-tested in Resend during Gate 11A;
+`.env.example`'s previous `commandes@vins.ecmelodia.ch` was an
+illustrative example that had never been verified. `.env.example` has
+been corrected to match. **No production `EMAIL_FROM`/Resend
+configuration was changed** — Resend production activation remains
+future work, unaffected by this documentation correction.
+
+Repository changes required for Gate 15D: a documentation-only
+correction (`README.md`'s stale DNS-provider claim, `.env.example`'s
+sender-address example) — **no application code changed**.
+
+**Gate 15D is COMPLETE. This is not a public-launch declaration.**
+No campaign exists or was activated; no production admin was
+bootstrapped; Saferpay LIVE is not configured; Resend production
+activation/validation remains outstanding; final production content
+review remains outstanding; campaign configuration and activation
+remain outstanding — activation is effectively the public-sale launch
+switch. **`TBD-SEC-007` (backup/restore policy) remains OPEN** — Neon
+Free-plan 6-hour PITR only, no scheduled snapshots (Gate 15B); the
+domain cutover does not resolve, close, or downgrade this requirement.
 
 ---
 
@@ -2752,7 +2888,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C done — first production deployment live, no active campaign — 15D+ pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D done — final domain https://vins.ecmelodia.ch live, no active campaign, TBD-SEC-007 open — remaining Phase 15 work pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

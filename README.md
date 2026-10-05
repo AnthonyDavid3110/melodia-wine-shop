@@ -37,8 +37,10 @@ docker compose down
 docker compose down -v
 ```
 
-Production target is Vercel (app) + Neon (PostgreSQL) + Infomaniak (DNS
-for `vins.ecmelodia.ch`) — see `docs/05-ARCHITECTURE.md`. Neon is never
+Production target is Vercel (app) + Neon (PostgreSQL). The
+authoritative DNS provider for `ecmelodia.ch` (including
+`vins.ecmelodia.ch`) is Wix (`ns10.wixdns.net`/`ns11.wixdns.net`), not
+Infomaniak — see `docs/05-ARCHITECTURE.md`. Neon is never
 required for local development; `DATABASE_DRIVER` (`postgres` | `neon`)
 selects which database driver the app uses, and is never inferred from
 the hosting platform.

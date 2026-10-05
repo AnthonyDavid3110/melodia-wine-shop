@@ -352,9 +352,10 @@ against a real Neon project. Migrations, the development seed, and
 PostgreSQL integration tests (`pnpm test:db`) all run against this
 local database. Neon is not required to develop this application.
 
-Production is not yet deployed. Nothing in this document should be
-read as confirming a live production database exists — see
-`10-IMPLEMENTATION-PLAN.md` Phase 15 for production readiness.
+A production Neon database now exists and is migrated (Phase 15 Gate
+15B) — see `10-IMPLEMENTATION-PLAN.md` Phase 15 for the full
+production-readiness record, including what remains outstanding
+before public launch.
 
 ## Staging database (Phase 10 Gate 10C-B2)
 

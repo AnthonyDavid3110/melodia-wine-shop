@@ -1868,7 +1868,8 @@ Marketing trackers are not required for V1.
 
 Before launch verify:
 
-    [ ] HTTPS active
+    [x] HTTPS active — verified on the final production domain
+        `https://vins.ecmelodia.ch`, valid TLS (Phase 15 Gate 15D-D)
 
     [ ] Production database backups active
 
