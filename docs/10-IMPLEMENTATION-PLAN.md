@@ -2463,6 +2463,72 @@ switch. **`TBD-SEC-007` (backup/restore policy) remains OPEN** — Neon
 Free-plan 6-hour PITR only, no scheduled snapshots (Gate 15B); the
 domain cutover does not resolve, close, or downgrade this requirement.
 
+## Phase 15 Gate 15E — production admin bootstrap (ready to close)
+
+**15E-A — preflight (complete).** Repository inspection confirmed
+`pnpm bootstrap:admin` (`src/infrastructure/auth/bootstrap-admin.ts` +
+`bootstrap-admin-core.ts`) collects email/name/password interactively
+(masked, confirmed-twice password prompt), never as a CLI argument,
+never logged or persisted in plaintext, with hashing delegated entirely
+to Better Auth. It uses the application's standard `DATABASE_URL`
+(pooled) via the normal `db` client — **not** `DATABASE_URL_UNPOOLED`,
+which only migrations use. It refuses a duplicate administrator for an
+existing email, and can recover an orphaned auth identity from the
+documented interrupted-run scenario (both proven by real DB
+integration tests, not just asserted). The authorization model has no
+role hierarchy in V1 — an active `admin_users` row linked to its auth
+identity is the sole authorization record. The permissive Better Auth
+instance the bootstrap script builds exists only inside that
+standalone process; `bootstrap-isolation.test.ts` proves by source
+inspection that the deployed HTTP auth route never imports it and that
+public signup stays hard-disabled in the real deployed instance. No
+repository change was required.
+
+**15E-B — production database precheck (complete).** Verified directly
+via the Neon SQL Editor before any mutation: database `neondb`, role
+`neondb_owner`, PostgreSQL 18.6, the expected 24 `public` tables
+present. All admin/auth/business-data row counts were `0`
+(`admin_users`, `auth_users`, `auth_accounts`, `auth_sessions`,
+`auth_verifications`, `campaigns`, `campaign_products`,
+`campaign_sellers`, `campaign_events`, `products`, `sellers`,
+`bundles`, `bundle_items`, `orders`, `order_items`,
+`order_bundle_components`, `order_events`, `payments`,
+`payment_events`, `seller_settlements`, `seller_settlement_orders`) —
+no administrator, no Better Auth identity, no business data, and
+therefore **no temporary development administrator to remove** (none
+has ever existed — no seed or migration path creates one). No
+mutation occurred during this precheck.
+
+**15E-C — production administrator bootstrap (complete).** Executed
+manually by the operator (`pnpm bootstrap:admin`), production
+connection supplied locally by the operator, never pasted or recorded
+here. Administrator created: email `communications@ecmelodia.ch`, name
+`communications`. Post-bootstrap Neon SQL Editor verification:
+`admin_users = 1`, `auth_users = 1`, `auth_accounts = 1`,
+`auth_sessions = 0`; the `admin_users` row has `active = true` and a
+populated `auth_user_id`, confirming the administrator is correctly
+linked to its Better Auth identity. A real authentication smoke test
+at `https://vins.ecmelodia.ch/admin` with the new credentials
+succeeded — login successful, admin interface reachable. This is an
+authentication/access smoke test, not a penetration test. No password,
+hash, session token, or connection string is recorded anywhere in this
+repository. Public signup remains disabled in the deployed
+application; the bootstrap-only instance remains unreachable via HTTP
+(§15E-A).
+
+Repository changes required for Gate 15E: **none** beyond this
+documentation record.
+
+**Gate 15E is ready to close. This is not a public-launch
+declaration.** Production admin bootstrap is no longer an open item —
+production administrator access now exists — but no campaign exists or
+was activated; Saferpay LIVE is not configured; Resend production
+activation/validation remains outstanding; final production content
+review remains outstanding; campaign configuration and activation
+remain outstanding (activation is effectively the public-sale launch
+switch). **`TBD-SEC-007` (backup/restore policy) remains OPEN**,
+unaffected by this gate.
+
 ---
 
 # 92. Phase 16 — Campaign content
@@ -2888,7 +2954,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D done — final domain https://vins.ecmelodia.ch live, no active campaign, TBD-SEC-007 open — remaining Phase 15 work pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D done, 15E ready to close — production admin exists, no active campaign, TBD-SEC-007 open — remaining Phase 15 work pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

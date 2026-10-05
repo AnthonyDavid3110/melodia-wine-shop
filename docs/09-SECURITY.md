@@ -1877,7 +1877,10 @@ Before launch verify:
 
     [ ] .env files ignored
 
-    [ ] Individual admin accounts configured
+    [x] Individual admin accounts configured — the first production
+        administrator was bootstrapped via `pnpm bootstrap:admin`,
+        authenticated successfully against
+        `https://vins.ecmelodia.ch/admin` (Phase 15 Gate 15E)
 
     [x] Admin authorization tested — ABUSE-AUTH-001 through
         ABUSE-AUTH-004 (§ Gate 14E matrix)
