@@ -1919,7 +1919,12 @@ Before launch verify:
 
     [ ] Logs reviewed for unnecessary personal data
 
-    [ ] Email domain authentication configured
+    [x] Email domain authentication configured — `ecmelodia.ch`
+        verified in Resend (SPF/DKIM/DMARC, Gate 11A); production
+        `RESEND_API_KEY`/`EMAIL_FROM` configured and a real delivery
+        confirmed (Phase 15 Gate 15F-C1). Infrastructure-level only —
+        the deployed application's own order-confirmation dispatch
+        path remains untested in production (§61 above)
 
     [ ] Dependency vulnerabilities reviewed
 

@@ -2529,6 +2529,98 @@ remain outstanding (activation is effectively the public-sale launch
 switch). **`TBD-SEC-007` (backup/restore policy) remains OPEN**,
 unaffected by this gate.
 
+## Phase 15 Gate 15F — Resend production activation (ready to close)
+
+**15F-A — preflight (complete).** Confirmed from source: the
+`EmailProvider` abstraction (`email-provider.ts`), the real Resend
+adapter (`resend-provider.ts`), and a fake test-only provider used only
+under a double gate (`NODE_ENV !== "production" && E2E_FAKE_EMAIL_PROVIDER === "true"`)
+proven, by a direct unit test, to never activate in production even
+with the opt-in set. Dispatch (`order-confirmation.ts`) runs only
+after the triggering order/payment transaction has genuinely committed
+and never throws outward — email failure never invalidates an order.
+Required production variables, confirmed from `resend-provider.ts`'s
+own `isResendConfigured()`/`getResendConfig()`: exactly `RESEND_API_KEY`
+(secret) and `EMAIL_FROM` (non-secret) — no other variable exists or is
+needed. The intended sender, `Les Vins de Mélodia <vins@ecmelodia.ch>`,
+was already consistent across `.env.example`/`docs/09-SECURITY.md`
+since Gate 15D-E. No code or documentation change was required before
+activation.
+
+**15F-B — Vercel Production configuration (complete).**
+`RESEND_API_KEY` and `EMAIL_FROM=Les Vins de Mélodia <vins@ecmelodia.ch>`
+were configured manually in Vercel Production (key value never
+recorded anywhere). Production was redeployed from commit `b0173a0`:
+pnpm 12.4.2, Next.js 16.3.8, build/typecheck/static-generation (27/27
+pages) all succeeded, no Resend/environment configuration error
+observed. No fake-email-provider variable was enabled in Production.
+
+**Application smoke-test limitation, discovered during inspection.**
+No standalone test-email route, CLI, or script exists anywhere in the
+repository — every path that can send an email is tied to an existing
+order (automatic dispatch requires `source === "ONLINE"`; the admin
+"Resend confirmation" action requires an already-eligible order).
+Confirmed from source that **manual** admin order creation also
+requires an active campaign, exactly like public checkout
+(`commandes/nouvelle/actions.ts`) — and no campaign currently exists.
+A deployed-application email E2E therefore cannot be performed right
+now without either synthetic business data or a temporary code change;
+neither was considered appropriate solely to validate infrastructure.
+No fake campaign, product, order, payment, or customer record was
+created.
+
+**15F-C1 — controlled Resend infrastructure test (complete).** A
+one-off, never-committed local invocation of the repository's actual
+`resendProvider.sendEmail()` (Node's `--conditions=react-server` used
+to safely resolve the `server-only` guard under a plain `tsx` run — no
+repository file created or modified) sent exactly one clearly-labelled
+test email, using the production API key (supplied interactively in
+the operator's shell, never pasted, logged, or recorded) and the
+production sender identity, to an operator-controlled recipient only.
+Result: local invocation reported success; Resend's dashboard showed
+the message as **Delivered**; the recipient confirmed receipt; the
+sender displayed correctly as `Les Vins de Mélodia <vins@ecmelodia.ch>`.
+No database/business record was created. Shell environment variables
+were cleared immediately afterward.
+
+**What Gate 15F proves, and what it explicitly does not.** Proven:
+the production Resend credential is accepted; the `ecmelodia.ch`
+sending domain is verified; the production sender identity is
+accepted; real external delivery works; the production email
+environment is correctly configured in Vercel; the post-configuration
+redeployment succeeded. **Not proven** — and not claimed: the deployed
+Vercel application's own order-confirmation path (Vercel runtime →
+order workflow → `order-confirmation.ts` dispatch → Resend →
+recipient), the automatic-dispatch trigger, the admin "Resend
+confirmation" action in production, or `EMAIL_FAILED` audit-event
+behavior in production. The controlled test exercised the Resend
+*infrastructure* path directly and locally, not the deployed
+application path.
+
+**Deferred: production transactional-email application E2E.** Tracked
+here as an explicit, outstanding item — to be performed once the real
+campaign exists and produces its first genuine eligible order,
+covering: a real order → application dispatch inside the deployed
+Vercel runtime → Resend → Delivered → recipient receives the
+confirmation, and, if practical at that time, the authenticated admin
+resend action. This is a deferred runtime validation, not a blocker to
+this infrastructure-activation gate — no existing acceptance criterion
+in this document requires a synthetic order purely to pre-validate it,
+and creating one would conflict with `CLAUDE.md` §58's prohibition on
+fake business data in production.
+
+Repository changes required for Gate 15F: **none** beyond this
+documentation record.
+
+**Gate 15F is ready to close. This is not a public-launch
+declaration, and it does not claim the deployed application's email
+workflow has been tested.** No campaign exists or was activated; no
+order was created; Saferpay LIVE is not configured
+(`TBD-PAY-001` unresolved); final production content review,
+campaign configuration, and campaign activation remain outstanding.
+**`TBD-SEC-007` (backup/restore policy) remains OPEN**, unaffected by
+this gate.
+
 ---
 
 # 92. Phase 16 — Campaign content
@@ -2954,7 +3046,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D done, 15E ready to close — production admin exists, no active campaign, TBD-SEC-007 open — remaining Phase 15 work pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D done, 15E/15F ready to close — production admin exists, Resend infrastructure validated (app-level E2E deferred), no active campaign, TBD-SEC-007 open, TBD-PAY-001 unresolved — remaining Phase 15 work pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
