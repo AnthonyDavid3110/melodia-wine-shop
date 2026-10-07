@@ -2737,10 +2737,72 @@ Restore tested: NO
 TBD-SEC-007: OPEN
 ```
 
-**Gate 15H-C (backup mechanism implementation), Gate 15H-D (isolated
-restore validation), and Gate 15H-E (documentation/TBD closeout) have
-not started.** `TBD-PAY-001`, `TBD-SEC-005`, and `TBD-SEC-006` are
-unaffected by this gate.
+**15H-C — backup mechanism implementation (ready to close).** `age`
+installed (Arch package); a dedicated age identity generated for "ECM
+production database backups" — the private identity was displayed to
+the operator exactly once, confirmed stored in the operator's password
+manager, then deleted from the workstation (verified absent: not on
+disk, not in this repository's working tree or git history, not in
+shell history). Only the public recipient is used anywhere in the
+repository.
+
+`scripts/backup-production.sh` (new, outside `src/`) implements the
+approved design: `pg_dump --format=custom --no-owner --no-privileges`
+streamed directly into `age --recipient <public key>` — no plaintext
+dump ever written to disk. The production direct/unpooled Neon URL is
+requested interactively with hidden input, held only in the script's
+process environment, and unset on exit; it is never a CLI argument,
+never written to disk, never logged. Output goes to a dedicated,
+non-repository, non-cloud-synced local directory
+(`~/melodia-wine-shop-backups` by default). On any pipeline failure,
+the incomplete artifact is removed and the script exits non-zero —
+previous backups are never touched. After a successful run, the
+script validates (without ever needing the private identity): the
+artifact exists, is non-empty, exceeds a conservative minimum-size
+threshold, and begins with the expected `age` file header — explicitly
+reported as "encrypted backup creation validated," never as "restore
+validated" (that remains Gate 15H-D). The script does not access
+kDrive and contains no retention logic — upload and the rolling
+7-backup retention remain entirely manual, operator-performed steps
+against kDrive, per the accepted policy.
+
+**Production backup attempt #1: FAILED.** A local post-encryption
+header-validation bug (the comparison string was one byte short of
+the real `age` format header) rejected an otherwise-valid encrypted
+artifact. No production mutation occurred — `pg_dump` is read-only —
+and the rejected artifact was automatically removed by the script's
+own failure handling. Fixed with a robust prefix match against the
+artifact's actual first line, re-verified against real `age` output
+and against the local development database before any further
+production access.
+
+**Production backup attempt #2: PASS.** Produced
+`melodia-prod_2026-10-07_160504Z.dump.age` (~72 KiB). Plaintext dump
+persisted: no. The encrypted artifact was manually uploaded by the
+operator to the private kDrive backup folder and confirmed present,
+correctly named, plausibly sized, and in a private (not publicly
+shared) location; the private age identity was not uploaded.
+
+**Normal daily procedure**, going forward:
+1. Run `scripts/backup-production.sh` manually.
+2. Enter the production direct/unpooled Neon URL at the hidden prompt.
+3. Wait for "Backup created successfully."
+4. Upload the resulting `.dump.age` artifact manually to the private
+   kDrive backup folder.
+5. Confirm filename and plausible file size in kDrive.
+6. Keep the latest 7 successful daily backup artifacts; delete an
+   older one only after the newest is confirmed successfully
+   uploaded. Never include the final campaign-closure backup in this
+   rolling deletion.
+
+**Local artifact policy**: the local encrypted artifact may be
+removed only after its kDrive upload is confirmed — the authoritative
+independent retained copy is the encrypted artifact in kDrive, not the
+local one. No automation is introduced for any of this.
+
+**Gate 15H-D (isolated restore validation) and Gate 15H-E
+(documentation/TBD closeout) have not started.** `TBD-PAY-001`,
+`TBD-SEC-005`, and `TBD-SEC-006` are unaffected by this gate.
 
 ---
 

@@ -1871,7 +1871,13 @@ Before launch verify:
     [x] HTTPS active — verified on the final production domain
         `https://vins.ecmelodia.ch`, valid TLS (Phase 15 Gate 15D-D)
 
-    [ ] Production database backups active
+    [x] Production database backups active — Neon native PITR running
+        continuously (Gate 15B), plus an independent, encrypted
+        logical-dump mechanism (`scripts/backup-production.sh`,
+        Phase 15 Gate 15H-C) proven against real production data and
+        stored in the operator's private kDrive. Restore from this
+        backup has not yet been proven — see the next item and
+        Gate 15H-D
 
     [ ] No production secrets in Git
 
