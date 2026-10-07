@@ -1,8 +1,19 @@
 import type { Metadata } from "next";
+import {
+  ClipboardList,
+  Clock,
+  Cookie,
+  CreditCard,
+  Landmark,
+  Mail,
+  Server,
+  SlidersHorizontal,
+  type LucideIcon,
+} from "lucide-react";
 import { getPublicCatalog } from "@/infrastructure/catalog/get-public-catalog";
 import { PublicHeader } from "@/components/public/header";
 import { PublicFooter } from "@/components/public/footer";
-import { Body, BodySmall, H1, H2 } from "@/components/ui/typography";
+import { Body, Display, H2 } from "@/components/ui/typography";
 import { ORGANISATION_IDENTITY } from "@/domain/documents/organisation-identity";
 
 export const metadata: Metadata = {
@@ -21,129 +32,160 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 /**
+ * One editorial section: a small decorative oxblood icon beside a
+ * heading + body copy, never a boxed/shadowed card — the page should
+ * read like content printed on the existing paper surface, not a
+ * dashboard. The icon is purely decorative (`aria-hidden`); the
+ * heading itself already carries the accessible section name, so nothing
+ * duplicates it for screen readers.
+ */
+function PrivacySection({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: LucideIcon;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex gap-4">
+      <Icon className="text-accent mt-1 size-5 shrink-0" aria-hidden="true" />
+      <div>
+        <H2 className="text-lg">{title}</H2>
+        <div className="text-foreground/70 mt-2 flex flex-col gap-3">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+/**
  * Phase 15 — TBD-SEC-006. The one combined public privacy/legal-
  * information page (business decision: one page, not three). Purely
  * static, factual content — no legal advice, no certification claim,
  * no invented statutory basis. See docs/09-SECURITY.md's `TBD-SEC-006`
  * entry for the decision record.
+ *
+ * Visual refinement (Phase 15, approved mockup): an editorial hero
+ * plus a two-column grid on desktop (single column on mobile) —
+ * content and meaning are unchanged from the original implementation,
+ * only the presentation.
  */
 export default async function PrivacyPage() {
   const catalog = await getPublicCatalog();
+  const [careOf, street, ...rest] = ORGANISATION_IDENTITY.addressLines;
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <PublicHeader catalog={catalog} />
-      <main className="mx-auto w-full max-w-2xl flex-1 px-5 py-12 sm:px-8">
-        <H1 className="text-2xl">Confidentialité &amp; mentions légales</H1>
-        <Body className="text-foreground/70 mt-4">
-          Cette page explique, de manière simple et factuelle, quelles informations sont collectées
-          lors d&rsquo;une commande sur ce site, pourquoi, et comment elles sont utilisées. Elle ne
-          constitue pas un avis juridique.
-        </Body>
-
-        <section aria-labelledby="confidentialite-responsable" className="mt-10">
-          <H2 id="confidentialite-responsable" className="text-lg">
-            Responsable
-          </H2>
-          <Body className="text-foreground/70 mt-2">
-            Le traitement des données décrit ici est effectué par l&rsquo;
-            {ORGANISATION_IDENTITY.name}, organisatrice de cette vente de vins.
+      <main className="flex-1">
+        <div className="mx-auto max-w-4xl px-5 py-16 sm:px-8 sm:py-20">
+          <Display as="h1" className="text-accent max-w-2xl">
+            Confidentialité &amp; mentions légales
+          </Display>
+          <Body className="text-foreground/70 mt-6 max-w-xl">
+            Cette page explique comment l&rsquo;Ensemble de Cuivres Mélodia collecte et utilise les
+            données personnelles dans le cadre de la vente de vins, ainsi que les informations
+            légales concernant l&rsquo;association. Elle ne constitue pas un avis juridique.
           </Body>
-          <BodySmall className="text-foreground/60 mt-2">
-            {ORGANISATION_IDENTITY.addressLines.join(", ")}
-          </BodySmall>
-        </section>
+        </div>
 
-        <section aria-labelledby="confidentialite-donnees" className="mt-10">
-          <H2 id="confidentialite-donnees" className="text-lg">
-            Données collectées
-          </H2>
-          <Body className="text-foreground/70 mt-2">
-            Lors d&rsquo;une commande, nous recueillons : prénom, nom, adresse postale, NPA,
-            localité, e-mail, téléphone, ainsi qu&rsquo;une éventuelle remarque de livraison. Si
-            vous indiquez un membre de l&rsquo;Ensemble de Cuivres Mélodia, cette information est
-            associée à votre commande. Les informations relatives à votre commande (articles,
-            montant, statut de paiement) sont également conservées.
-          </Body>
-        </section>
+        <div className="mx-auto max-w-4xl px-5 pb-20 sm:px-8">
+          <div className="grid gap-12 md:grid-cols-2 md:gap-x-16">
+            <div className="flex flex-col gap-12">
+              <PrivacySection icon={Landmark} title="Responsable du traitement">
+                <Body>
+                  Le traitement des données décrit ici est effectué par l&rsquo;
+                  {ORGANISATION_IDENTITY.name}, organisatrice de cette vente de vins.
+                </Body>
+                <Body className="text-sm">
+                  {careOf}
+                  <br />
+                  {street}
+                  <br />
+                  {rest.join(" · ")}
+                </Body>
+              </PrivacySection>
 
-        <section aria-labelledby="confidentialite-utilisation" className="mt-10">
-          <H2 id="confidentialite-utilisation" className="text-lg">
-            Utilisation des données
-          </H2>
-          <Body className="text-foreground/70 mt-2">
-            Ces informations sont utilisées pour traiter votre commande, organiser la livraison,
-            l&rsquo;associer le cas échéant au membre de Mélodia qui vous l&rsquo;a proposée, vous
-            envoyer une confirmation de commande, et traiter le paiement en ligne lorsque ce mode de
-            paiement est choisi.
-          </Body>
-        </section>
+              <PrivacySection icon={ClipboardList} title="Données collectées">
+                <Body>
+                  Lors d&rsquo;une commande, nous recueillons : prénom, nom, adresse postale, NPA,
+                  localité, e-mail, téléphone, ainsi qu&rsquo;une éventuelle remarque de livraison.
+                </Body>
+                <Body>
+                  Si vous indiquez un membre de l&rsquo;Ensemble de Cuivres Mélodia, cette
+                  information est associée à votre commande. Les informations relatives à votre
+                  commande (articles, montant, statut de paiement) sont également conservées.
+                </Body>
+              </PrivacySection>
 
-        <section aria-labelledby="confidentialite-prestataires" className="mt-10">
-          <H2 id="confidentialite-prestataires" className="text-lg">
-            Prestataires
-          </H2>
-          <Body className="text-foreground/70 mt-2">
-            Ce site est hébergé par Vercel. La base de données est hébergée par Neon. La
-            confirmation de commande par e-mail est envoyée via Resend, à qui les informations
-            nécessaires à cet envoi sont transmises.
-          </Body>
-        </section>
+              <PrivacySection icon={SlidersHorizontal} title="Utilisation des données">
+                <Body>
+                  Ces informations sont utilisées pour traiter votre commande, organiser la
+                  livraison, l&rsquo;associer le cas échéant au membre de Mélodia qui vous l&rsquo;a
+                  proposée, vous envoyer une confirmation de commande, et traiter le paiement en
+                  ligne lorsque ce mode de paiement est choisi.
+                </Body>
+              </PrivacySection>
+            </div>
 
-        <section aria-labelledby="confidentialite-paiement" className="mt-10">
-          <H2 id="confidentialite-paiement" className="text-lg">
-            Paiement en ligne
-          </H2>
-          <Body className="text-foreground/70 mt-2">
-            Lorsque le paiement en ligne (TWINT / carte) est proposé, il est traité par Worldline
-            (Saferpay) sur une page sécurisée fournie par ce prestataire. Les informations de
-            paiement sont saisies directement sur cette page et ne transitent pas par
-            l&rsquo;application Melodia, qui ne les stocke pas.
-          </Body>
-        </section>
+            <div className="flex flex-col gap-12">
+              <PrivacySection icon={Server} title="Prestataires">
+                <Body>
+                  Ce site est hébergé par Vercel. La base de données est hébergée par Neon. La
+                  confirmation de commande par e-mail est envoyée via Resend, à qui les informations
+                  nécessaires à cet envoi sont transmises.
+                </Body>
+              </PrivacySection>
 
-        <section aria-labelledby="confidentialite-conservation" className="mt-10">
-          <H2 id="confidentialite-conservation" className="text-lg">
-            Conservation
-          </H2>
-          <Body className="text-foreground/70 mt-2">
-            L&rsquo;Ensemble de Cuivres Mélodia conserve l&rsquo;historique de ses campagnes et
-            commandes, y compris les informations client associées à chaque commande, sans durée de
-            conservation automatique prédéfinie. Il n&rsquo;existe pas de suppression ni
-            d&rsquo;anonymisation automatique de ces données. Cette conservation vise à préserver
-            l&rsquo;historique des ventes de l&rsquo;association. Les sauvegardes protégées de la
-            base de données peuvent également contenir ces informations.
-          </Body>
-        </section>
+              <PrivacySection icon={CreditCard} title="Paiement en ligne">
+                <Body>
+                  Lorsque le paiement en ligne (TWINT / carte) est proposé, il est traité par
+                  Worldline (Saferpay) sur une page sécurisée fournie par ce prestataire. Les
+                  informations de paiement sont saisies directement sur cette page et ne transitent
+                  pas par l&rsquo;application Melodia, qui ne les stocke pas.
+                </Body>
+              </PrivacySection>
 
-        <section aria-labelledby="confidentialite-cookies" className="mt-10">
-          <H2 id="confidentialite-cookies" className="text-lg">
-            Stockage local et cookies
-          </H2>
-          <Body className="text-foreground/70 mt-2">
-            Le site public n&rsquo;utilise aucun cookie publicitaire ou de suivi statistique. Le
-            panier est conservé localement dans votre navigateur. Des cookies
-            d&rsquo;authentification sont utilisés uniquement pour l&rsquo;espace
-            d&rsquo;administration réservé aux membres de Mélodia.
-          </Body>
-        </section>
+              <PrivacySection icon={Clock} title="Conservation">
+                <Body>
+                  L&rsquo;Ensemble de Cuivres Mélodia conserve l&rsquo;historique de ses campagnes
+                  et commandes, y compris les informations client associées à chaque commande, sans
+                  durée de conservation automatique prédéfinie. Il n&rsquo;existe pas de suppression
+                  ni d&rsquo;anonymisation automatique de ces données.
+                </Body>
+                <Body>
+                  Cette conservation vise à préserver l&rsquo;historique des ventes de
+                  l&rsquo;association. Les sauvegardes protégées de la base de données peuvent
+                  également contenir ces informations.
+                </Body>
+              </PrivacySection>
 
-        <section aria-labelledby="confidentialite-contact" className="mt-10">
-          <H2 id="confidentialite-contact" className="text-lg">
-            Contact
-          </H2>
-          <Body className="text-foreground/70 mt-2">
-            Pour toute question concernant le traitement de vos données personnelles, vous pouvez
-            contacter l&rsquo;Ensemble de Cuivres Mélodia à{" "}
-            <a
-              href="mailto:communications@ecmelodia.ch"
-              className="underline-offset-2 hover:underline"
-            >
-              communications@ecmelodia.ch
-            </a>
-            .
-          </Body>
-        </section>
+              <PrivacySection icon={Cookie} title="Stockage local et cookies">
+                <Body>
+                  Le site public n&rsquo;utilise aucun cookie publicitaire ou de suivi statistique.
+                  Le panier est conservé localement dans votre navigateur. Des cookies
+                  d&rsquo;authentification sont utilisés uniquement pour l&rsquo;espace
+                  d&rsquo;administration réservé aux membres de Mélodia.
+                </Body>
+              </PrivacySection>
+
+              <PrivacySection icon={Mail} title="Contact">
+                <Body>
+                  Pour toute question concernant le traitement de vos données personnelles, vous
+                  pouvez contacter l&rsquo;Ensemble de Cuivres Mélodia à{" "}
+                  <a
+                    href="mailto:communications@ecmelodia.ch"
+                    className="text-accent underline-offset-2 hover:underline"
+                  >
+                    communications@ecmelodia.ch
+                  </a>
+                  .
+                </Body>
+              </PrivacySection>
+            </div>
+          </div>
+        </div>
       </main>
       <PublicFooter />
     </div>
