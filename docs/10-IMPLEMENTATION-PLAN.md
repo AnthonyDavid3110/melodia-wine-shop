@@ -2063,14 +2063,19 @@ production-readiness checks are complete (Gates 15A–15F and 15H;
 `09-SECURITY.md` §79's five locally-verifiable checklist items —
 no production secrets in Git, `.env` files ignored, error pages
 exposing no internals, logs reviewed for PII, dependency
-vulnerabilities reviewed — all checked). **Remaining Phase 15 work
-depends on external, business, or real-campaign conditions**:
-`TBD-PAY-001` (Saferpay LIVE merchant onboarding and production
-payment validation), `TBD-SEC-005` (data-retention decision),
-`TBD-SEC-006` (privacy/legal content), final real campaign/content
-review, and the deferred application-level transactional-email E2E
-(Gate 15F) once a genuine campaign order exists. **Phase 15 is not
-yet complete** — local work is exhausted, not the phase itself.
+vulnerabilities reviewed — all checked). `TBD-SEC-005` (data-retention
+decision) was subsequently resolved as an ECM business decision
+(indefinite historical retention, no automatic anonymization/deletion
+— see `docs/09-SECURITY.md`'s `TBD-SEC-005` entry and this document's
+Gate 15H retention note). **Remaining Phase 15 work depends on
+external, business, or real-campaign conditions**: `TBD-PAY-001`
+(Saferpay LIVE merchant onboarding and production payment
+validation), `TBD-SEC-006` (privacy/legal content — still open, and
+must reflect the now-decided retention policy), final real
+campaign/content review, and the deferred application-level
+transactional-email E2E (Gate 15F) once a genuine campaign order
+exists. **Phase 15 is not yet complete** — local work is exhausted,
+not the phase itself.
 
 ---
 
@@ -2702,10 +2707,15 @@ below has been executed yet):**
   backup at campaign closure.
 - **Retention**: the latest 7 successful daily backups retained on a
   rolling basis during an active campaign; the final campaign-closure
-  backup retained separately. **No long-term retention period is
-  invented here** — the final campaign backup is retained until this
-  project's authoritative customer-data retention policy (still
-  `TBD-SEC-005`, unresolved) defines its deletion date.
+  backup retained separately. Now that `TBD-SEC-005` is resolved (ECM
+  retains the complete historical campaign/order record indefinitely),
+  the final encrypted campaign-closure backup may be retained as part
+  of that same historical campaign record, without a predefined
+  automatic expiration date. This does **not** require retaining every
+  rolling daily backup indefinitely — the rolling 7-backup policy
+  during an active campaign is unchanged; only the one retained
+  final-closure backup per campaign follows the indefinite-retention
+  decision.
 - **RTO**: a few hours / same business day — not a continuously
   operating platform, so sub-hour automated recovery is not required.
 - **Restore validation**: one successful restore, against an isolated
@@ -3325,7 +3335,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D/15H done, 15E/15F ready to close — production admin exists, Resend infrastructure validated (app-level E2E deferred), backup/restore validated (TBD-SEC-007 RESOLVED), no active campaign, TBD-PAY-001 unresolved — remaining Phase 15 work pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D/15H done, 15E/15F ready to close — production admin exists, Resend infrastructure validated (app-level E2E deferred), backup/restore validated (TBD-SEC-007 RESOLVED), data retention decided (TBD-SEC-005 RESOLVED), no active campaign, TBD-SEC-006 and TBD-PAY-001 unresolved — remaining Phase 15 work pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

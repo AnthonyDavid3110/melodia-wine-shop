@@ -1823,23 +1823,29 @@ be invented by the implementation.
 
 ---
 
-# 77. Data retention
+# 77. Data retention — RESOLVED (`TBD-SEC-005`)
 
-Exact personal-data retention policy is TBD.
+ECM has decided to retain the complete historical campaign and order
+record — including the customer information snapshotted on each
+order — indefinitely, without a defined automatic expiration period.
 
-Orders may need to be retained for legitimate:
+This was a deliberate business decision, not merely the path of
+least resistance: orders are retained for legitimate accounting,
+financial, and organisational purposes, and ECM additionally wants
+the complete historical record preserved across campaigns/years as
+an amateur/association-operated fundraising sale.
 
-    accounting
-    financial
-    organisational
+There is no scheduled purge, no automatic anonymization, and no
+automatic deletion. Historical financial records are never
+automatically deleted — consistent with the existing archival model
+(cancellation/deactivation/archival, never physical deletion).
 
-requirements.
-
-Do not automatically delete historical financial records without a
-validated retention policy.
-
-At the same time, personal data should not be retained indefinitely
-without purpose.
+Operational/authentication data with an inherently ephemeral
+lifetime (auth sessions, email-verification tokens, rate-limit
+tracking rows) is unaffected by this decision and continues to
+follow its own existing, already-established lifecycle — it was
+never a permanent business record and this decision does not make it
+one.
 
 ---
 
@@ -2281,13 +2287,52 @@ policy and its accepted static-vs-nonce limitation. `img-src` remains
 intentionally narrow pending TBD-ARCH-006 (image storage provider,
 still unresolved).
 
-## TBD-SEC-005 — Data retention
+## TBD-SEC-005 — Data retention — RESOLVED (ECM business decision)
 
-Define retention period with ECM accounting/legal requirements.
+**Decision**: ECM retains the complete historical campaign and order
+records — including the customer information snapshotted on each
+order — without a defined automatic expiration period. There is no
+automatic anonymization policy and no automatic deletion policy.
+Orders, payments, settlements, and historical campaign data remain
+immutable historical/business records and continue to follow the
+existing archival model (`CLAUDE.md` §16–§18 — cancellation/
+deactivation/archival, never physical deletion, audit trail
+preserved).
+
+**Purpose**: this is an amateur/association-operated fundraising
+sale, not a continuously-operating commercial platform. ECM wants to
+preserve the complete historical record of its wine-sale campaigns
+and orders across years for organisational and historical reference.
+This is an ECM business/operational decision, not a claimed
+statutory or legal retention requirement.
+
+Individual operational/authentication data with an inherently
+ephemeral lifetime (auth sessions, email-verification tokens, rate-
+limit tracking rows, etc.) continues to follow its own existing,
+already-established lifecycle — this decision does not convert
+transient technical data into a permanent record; it only confirms
+that the *business* record (orders, payments, settlements, campaign
+data, and the customer information snapshotted with each order) is
+retained indefinitely.
+
+No application code, database schema, or migration change was
+required or made — this was a pure business-policy decision; the
+existing architecture (snapshot-on-order, never-delete financial
+records) already matches it exactly.
 
 ## TBD-SEC-006 — Privacy/legal documents
 
 Validate required Swiss privacy and commercial information before launch.
+
+**Relationship to `TBD-SEC-005`**: `TBD-SEC-005` (data retention) is now
+resolved — see above. Whatever privacy/legal content is eventually
+drafted and validated under this item must accurately reflect that
+decided policy: customer and order information is retained as part of
+the historical campaign record, without a predefined automatic
+deletion or anonymization period. This note records that factual
+constraint only; it does not draft the privacy/legal text itself, and
+it does not assert that the retention policy is legally required or
+legally validated. `TBD-SEC-006` remains **OPEN**.
 
 ## TBD-SEC-007 — Backup provider configuration — RESOLVED (Phase 15 Gate 15H)
 
