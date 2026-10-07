@@ -379,6 +379,14 @@ export function CheckoutForm({
         </p>
       ) : null}
 
+      <BodySmall className="text-foreground/60">
+        Les informations fournies sont utilisées pour traiter et livrer votre commande.{" "}
+        <Link href="/confidentialite" className="underline-offset-2 hover:underline">
+          En savoir plus sur la confidentialité
+        </Link>
+        .
+      </BodySmall>
+
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link href="/panier" className="font-sans text-sm underline-offset-2 hover:underline">
           Modifier le panier

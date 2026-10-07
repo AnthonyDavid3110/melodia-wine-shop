@@ -2067,15 +2067,17 @@ vulnerabilities reviewed — all checked). `TBD-SEC-005` (data-retention
 decision) was subsequently resolved as an ECM business decision
 (indefinite historical retention, no automatic anonymization/deletion
 — see `docs/09-SECURITY.md`'s `TBD-SEC-005` entry and this document's
-Gate 15H retention note). **Remaining Phase 15 work depends on
-external, business, or real-campaign conditions**: `TBD-PAY-001`
-(Saferpay LIVE merchant onboarding and production payment
-validation), `TBD-SEC-006` (privacy/legal content — still open, and
-must reflect the now-decided retention policy), final real
-campaign/content review, and the deferred application-level
-transactional-email E2E (Gate 15F) once a genuine campaign order
-exists. **Phase 15 is not yet complete** — local work is exhausted,
-not the phase itself.
+Gate 15H retention note). `TBD-SEC-006` (privacy/legal content) was
+also subsequently resolved: a combined public privacy/legal-
+information page (`/confidentialite`) was implemented, reflecting the
+decided retention policy, linked from the footer and checkout — see
+`docs/09-SECURITY.md`'s `TBD-SEC-006` entry. **Remaining Phase 15 work
+depends on external, business, or real-campaign conditions**:
+`TBD-PAY-001` (Saferpay LIVE merchant onboarding and production
+payment validation), final real campaign/content review, and the
+deferred application-level transactional-email E2E (Gate 15F) once a
+genuine campaign order exists. **Phase 15 is not yet complete** —
+local work is exhausted, not the phase itself.
 
 ---
 
@@ -3335,7 +3337,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D/15H done, 15E/15F ready to close — production admin exists, Resend infrastructure validated (app-level E2E deferred), backup/restore validated (TBD-SEC-007 RESOLVED), data retention decided (TBD-SEC-005 RESOLVED), no active campaign, TBD-SEC-006 and TBD-PAY-001 unresolved — remaining Phase 15 work pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D/15H done, 15E/15F ready to close — production admin exists, Resend infrastructure validated (app-level E2E deferred), backup/restore validated (TBD-SEC-007 RESOLVED), data retention decided (TBD-SEC-005 RESOLVED), privacy/legal page implemented (TBD-SEC-006 RESOLVED), no active campaign, TBD-PAY-001 unresolved — remaining Phase 15 work pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,

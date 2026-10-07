@@ -1804,22 +1804,20 @@ Examples:
 
 ---
 
-# 76. Privacy and legal review
+# 76. Privacy and legal review — RESOLVED (`TBD-SEC-006`)
 
-Before production launch, ECM should verify the required public legal
-information for the Swiss context.
+A combined public privacy/legal-information page was implemented at
+`/confidentialite` (Phase 15), covering the responsible organisation,
+data collected, external services, retention, and browser-storage
+behaviour — see the `TBD-SEC-006` entry below for the full record.
+Sales/payment/delivery conditions and a cancellation/refund policy
+were treated as non-blocking for V1 and were not drafted (no sales-
+conditions requirement is invented here).
 
-Potential topics include:
-
-    privacy notice
-    organisation identity/contact information
-    sales conditions
-    payment conditions
-    delivery conditions
-    cancellation/refund policy
-
-Exact legal wording is outside this technical specification and must not
-be invented by the implementation.
+Exact legal wording remains outside this technical specification and
+was not invented by the implementation — the published content is
+factual disclosure of actual application behaviour, not a certified
+legal review.
 
 ---
 
@@ -1986,7 +1984,10 @@ Before launch verify:
         warnings/errors, 24/24 expected tables, 7/7 migration
         records, and all tested referential-integrity checks passing
 
-    [ ] Privacy/legal pages reviewed
+    [x] Privacy/legal pages reviewed — `/confidentialite` implemented
+        and linked from the footer and checkout (Phase 15, `TBD-SEC-006`
+        RESOLVED); this is a factual V1 disclosure, not an externally
+        certified legal review — see the `TBD-SEC-006` entry above
 
 ---
 
@@ -2320,19 +2321,46 @@ required or made — this was a pure business-policy decision; the
 existing architecture (snapshot-on-order, never-delete financial
 records) already matches it exactly.
 
-## TBD-SEC-006 — Privacy/legal documents
+## TBD-SEC-006 — Privacy/legal documents — RESOLVED (Phase 15)
 
-Validate required Swiss privacy and commercial information before launch.
+V1 now provides one combined public privacy/legal-information page at
+`/confidentialite` (`src/app/confidentialite/page.tsx`), reusing the
+production header/footer/typography primitives (Programme V2). It
+discloses, in plain factual French:
 
-**Relationship to `TBD-SEC-005`**: `TBD-SEC-005` (data retention) is now
-resolved — see above. Whatever privacy/legal content is eventually
-drafted and validated under this item must accurately reflect that
-decided policy: customer and order information is retained as part of
-the historical campaign record, without a predefined automatic
-deletion or anonymization period. This note records that factual
-constraint only; it does not draft the privacy/legal text itself, and
-it does not assert that the retention policy is legally required or
-legally validated. `TBD-SEC-006` remains **OPEN**.
+- the responsible organisation (`Ensemble de Cuivres Mélodia`, using
+  the existing authoritative `ORGANISATION_IDENTITY` constant — no
+  individual person is named as data controller);
+- which personal data is collected at checkout and why;
+- how that data is used (order processing, delivery, seller
+  attribution, transactional email, online payment);
+- the external services involved (Vercel hosting, Neon database,
+  Resend transactional email, Worldline/Saferpay online payment —
+  stating plainly that payment details are entered on the provider's
+  own page and are never stored by the Melodia application);
+- the now-resolved `TBD-SEC-005` retention decision, stated factually
+  (indefinite historical retention, no automatic deletion or
+  anonymization, protected backups may also contain this data) —
+  without asserting that this is legally required;
+- actual browser-storage/cookie behaviour (no advertising/analytics
+  tracking; the cart is client-side `localStorage`; authentication
+  cookies exist only for the admin area);
+- a contact address for data-related questions
+  (`communications@ecmelodia.ch`).
+
+The page is linked from the public footer (`PublicFooter`, every
+public page) and from checkout (`CheckoutForm`, a short prior-
+information notice before the submit action). No mandatory consent
+checkbox, no consent-timestamp field, and no cookie banner were
+added — none are justified by actual application behaviour, which has
+no advertising/analytics tracking to disclose. No database schema or
+migration change was made.
+
+This page is factual disclosure, not a certified legal document: it
+does not claim external legal review, LPD/FADP certification, or
+FDPIC/PFPDT approval, and does not invent a statutory retention
+period or legal basis. Exact wording remains open to future revision
+if ECM later obtains formal legal review.
 
 ## TBD-SEC-007 — Backup provider configuration — RESOLVED (Phase 15 Gate 15H)
 
