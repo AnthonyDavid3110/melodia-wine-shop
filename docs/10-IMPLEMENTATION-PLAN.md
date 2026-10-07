@@ -2621,6 +2621,127 @@ campaign configuration, and campaign activation remain outstanding.
 **`TBD-SEC-007` (backup/restore policy) remains OPEN**, unaffected by
 this gate.
 
+## Phase 15 Gate 15H — backup / restore policy (`TBD-SEC-007`)
+
+**15H-A — preflight (complete).** Read-only inspection established
+the authoritative requirement (`09-SECURITY.md` §72/§73): a backup
+strategy must be confirmed before launch, and the recovery procedure
+must be understood — but, explicitly, "a formal disaster-recovery
+exercise is not required for this project's scale." Data criticality
+was classified against the 24-table schema (orders/payments/
+settlements/campaign data as business-critical and hard to
+reconstruct; sessions/rate-limit tables as safely ephemeral). No
+repository change was identified as necessary.
+
+**15H-B — backup/restore policy decision (ready to close).** The
+project owner has decided a lightweight hybrid policy:
+
+- **Layer 1 — Neon native recovery** remains the first line of
+  defense for recent operational incidents: fast, provider-native,
+  low operator effort, bounded by whatever PITR/history window the
+  current Neon plan provides.
+- **Layer 2 — an independent, encrypted PostgreSQL logical backup**,
+  taken outside Neon during active campaigns, for recovery beyond the
+  native window and to reduce dependence on the Neon project/account
+  itself. Neither layer replaces the other.
+
+**Decided policy, recorded here for Gate 15H-C to implement (nothing
+below has been executed yet):**
+
+- **Provider**: the project remains on Neon Free unless an unrelated
+  requirement later justifies upgrading — not driven by this policy.
+- **Independent backup format**: PostgreSQL custom-format logical
+  dump (conceptually `pg_dump --format=custom --no-owner
+  --no-privileges ...` — the exact safe command and credential-supply
+  mechanism are deferred to Gate 15H-C), covering the complete
+  database needed for recovery: schema, business data, order/payment
+  history, audit/event data, authentication/admin data, and
+  counters/sequences. No table-specific exclusion.
+- **Independent destination**: the operator's private kDrive —
+  private, operator-controlled, never shared, never inside this
+  repository, never reachable through the public application.
+  Encrypted artifacts only; the exact folder is left to Gate 15H-C.
+- **Encryption**: the dump is encrypted locally *before* it ever
+  reaches kDrive — no unencrypted production dump may be stored
+  there. The encryption/decryption secret must never live in this
+  repository, the backup directory, alongside the encrypted backups
+  in kDrive, in source code, in documentation, in chat, or in shell
+  history. The exact tool (a modern authenticated-encryption utility
+  such as `age` or an equivalent) is a Gate 15H-C decision, not made
+  here.
+- **Naming**: a non-sensitive, sortable convention conceptually like
+  `melodia-prod_YYYY-MM-DD_HHMM.dump.<encrypted-extension>` — never
+  containing customer information, credentials, connection strings,
+  or campaign-sensitive personal data.
+- **Frequency/RPO**: no recurring independent backup while no
+  campaign is active. During an **active** campaign, one independent
+  encrypted backup per day — the interval between successful
+  independent backups must not exceed approximately 24 hours.
+  Additional checkpoints before a materially risky production
+  database operation (manual production SQL, schema/migration
+  intervention, bulk corrective data operation, destructive
+  maintenance — never routine application/admin use) and one final
+  backup at campaign closure.
+- **Retention**: the latest 7 successful daily backups retained on a
+  rolling basis during an active campaign; the final campaign-closure
+  backup retained separately. **No long-term retention period is
+  invented here** — the final campaign backup is retained until this
+  project's authoritative customer-data retention policy (still
+  `TBD-SEC-005`, unresolved) defines its deletion date.
+- **RTO**: a few hours / same business day — not a continuously
+  operating platform, so sub-hour automated recovery is not required.
+- **Restore validation**: one successful restore, against an isolated
+  target (a temporary Neon branch or a local PostgreSQL 18 instance —
+  Gate 15H-C/D decides which), required once before the first real
+  campaign is activated. This is explicitly not a recurring formal
+  disaster-recovery exercise, and must never be tested destructively
+  against production.
+- **Failure semantics (policy only, not yet implemented)**: a backup
+  is successful only if the dump, encryption, and upload all succeed
+  and the artifact is confirmed non-empty at its destination; a failed
+  attempt must never silently replace or delete the most recent
+  known-good backup; any temporary plaintext dump must be securely
+  removed.
+
+**Important wording distinction, preserved deliberately**: the
+6-hour PITR/history window recorded in Gate 15B above is the
+**observed current Neon Free-plan capability at the time it was
+checked** — not a permanent architectural guarantee this project
+depends on. The accepted policy's RPO/RTO figures above are the
+**independent-backup policy**, which exists precisely because native
+provider capability may change or prove insufficient.
+
+No second backup destination (e.g. duplicating across another
+provider) is part of this policy. A second independent copy of the
+final campaign-closure backup may be considered later but is not
+required and not part of Gate 15H unless separately authorized.
+
+Repository changes required for Gate 15H-B: this documentation record
+only.
+
+**Gate 15H-B is ready to close — this records the policy decision
+only.** It does **not** close `TBD-SEC-007`. After this gate:
+
+```text
+Backup strategy: DECIDED
+RPO/RTO: ACCEPTED
+Independent destination: DECIDED
+Backup frequency: DECIDED
+Retention concept: DECIDED
+Encryption requirement: DECIDED
+
+Backup mechanism implemented: NO
+First backup produced: NO
+Restore tested: NO
+
+TBD-SEC-007: OPEN
+```
+
+**Gate 15H-C (backup mechanism implementation), Gate 15H-D (isolated
+restore validation), and Gate 15H-E (documentation/TBD closeout) have
+not started.** `TBD-PAY-001`, `TBD-SEC-005`, and `TBD-SEC-006` are
+unaffected by this gate.
+
 ---
 
 # 92. Phase 16 — Campaign content

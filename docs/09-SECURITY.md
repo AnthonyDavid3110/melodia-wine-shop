@@ -2239,6 +2239,19 @@ Define retention period with ECM accounting/legal requirements.
 
 Validate required Swiss privacy and commercial information before launch.
 
-## TBD-SEC-007 — Backup provider configuration
+## TBD-SEC-007 — Backup provider configuration — OPEN (policy decided, Phase 15 Gate 15H-B)
 
-Finalize after PostgreSQL hosting provider is selected.
+PostgreSQL hosting provider is selected (Neon, Phase 15 Gate 15B).
+Gate 15H-B has recorded the accepted backup/restore **policy**: Neon
+native recovery as the first line of defense, plus an independent,
+locally-encrypted PostgreSQL logical backup (daily during an active
+campaign, 7-day rolling retention, one additional backup at campaign
+closure) stored in the operator's private kDrive — see
+`10-IMPLEMENTATION-PLAN.md`'s Gate 15H section for the full policy.
+
+**This TBD remains OPEN.** The policy decision alone does not close
+it — no backup mechanism has been implemented, no backup has been
+produced, and no restore has been tested. Closure requires Gate 15H-C
+(implementation), Gate 15H-D (one isolated restore validation before
+the first real campaign activates), and Gate 15H-E (documentation
+closeout).
