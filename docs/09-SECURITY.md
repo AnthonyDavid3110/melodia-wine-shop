@@ -1934,7 +1934,12 @@ Before launch verify:
 
     [ ] Dependency vulnerabilities reviewed
 
-    [ ] Database restore procedure understood
+    [x] Database restore procedure understood — a real encrypted
+        production backup was successfully decrypted and restored
+        into an isolated local PostgreSQL 18.6 database and fully
+        validated (Phase 15 Gate 15H-D): `pg_restore` exit 0, zero
+        warnings/errors, 24/24 expected tables, 7/7 migration
+        records, and all tested referential-integrity checks passing
 
     [ ] Privacy/legal pages reviewed
 
@@ -2245,19 +2250,26 @@ Define retention period with ECM accounting/legal requirements.
 
 Validate required Swiss privacy and commercial information before launch.
 
-## TBD-SEC-007 — Backup provider configuration — OPEN (policy decided, Phase 15 Gate 15H-B)
+## TBD-SEC-007 — Backup provider configuration — RESOLVED (Phase 15 Gate 15H)
 
 PostgreSQL hosting provider is selected (Neon, Phase 15 Gate 15B).
-Gate 15H-B has recorded the accepted backup/restore **policy**: Neon
-native recovery as the first line of defense, plus an independent,
+Gate 15H-B recorded the accepted backup/restore policy: Neon native
+recovery as the first line of defense, plus an independent,
 locally-encrypted PostgreSQL logical backup (daily during an active
 campaign, 7-day rolling retention, one additional backup at campaign
-closure) stored in the operator's private kDrive — see
-`10-IMPLEMENTATION-PLAN.md`'s Gate 15H section for the full policy.
+closure) stored in the operator's private kDrive. Gate 15H-C
+implemented the mechanism (`scripts/backup-production.sh`) and
+produced a real production backup, independently stored and
+operator-confirmed in kDrive. Gate 15H-D decrypted that real backup
+and restored it into an isolated local PostgreSQL 18.6 database,
+validating schema (24/24 tables), migration metadata (7/7 records),
+aggregate production data, counter integrity, and referential
+integrity (0 orphans across every tested relationship) — `pg_restore`
+exit 0, zero warnings, zero errors. All temporary plaintext and the
+temporary private identity were removed immediately after validation;
+the isolated restore database was dropped once evidence was recorded.
 
-**This TBD remains OPEN.** The policy decision alone does not close
-it — no backup mechanism has been implemented, no backup has been
-produced, and no restore has been tested. Closure requires Gate 15H-C
-(implementation), Gate 15H-D (one isolated restore validation before
-the first real campaign activates), and Gate 15H-E (documentation
-closeout).
+**All of TBD-SEC-007's named closure requirements are now satisfied**:
+Gate 15H-C (implementation) complete, Gate 15H-D (restore validation)
+complete, Gate 15H-E (documentation closeout) complete — this record
+is that closeout. **TBD-SEC-007 is RESOLVED.**

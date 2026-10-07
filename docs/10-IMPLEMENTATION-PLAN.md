@@ -2621,7 +2621,7 @@ campaign configuration, and campaign activation remain outstanding.
 **`TBD-SEC-007` (backup/restore policy) remains OPEN**, unaffected by
 this gate.
 
-## Phase 15 Gate 15H — backup / restore policy (`TBD-SEC-007`)
+## Phase 15 Gate 15H — backup / restore policy (`TBD-SEC-007`) (COMPLETE)
 
 **15H-A — preflight (complete).** Read-only inspection established
 the authoritative requirement (`09-SECURITY.md` §72/§73): a backup
@@ -2633,7 +2633,7 @@ settlements/campaign data as business-critical and hard to
 reconstruct; sessions/rate-limit tables as safely ephemeral). No
 repository change was identified as necessary.
 
-**15H-B — backup/restore policy decision (ready to close).** The
+**15H-B — backup/restore policy decision (COMPLETE).** The
 project owner has decided a lightweight hybrid policy:
 
 - **Layer 1 — Neon native recovery** remains the first line of
@@ -2737,7 +2737,7 @@ Restore tested: NO
 TBD-SEC-007: OPEN
 ```
 
-**15H-C — backup mechanism implementation (ready to close).** `age`
+**15H-C — backup mechanism implementation (COMPLETE).** `age`
 installed (Arch package); a dedicated age identity generated for "ECM
 production database backups" — the private identity was displayed to
 the operator exactly once, confirmed stored in the operator's password
@@ -2800,9 +2800,87 @@ removed only after its kDrive upload is confirmed — the authoritative
 independent retained copy is the encrypted artifact in kDrive, not the
 local one. No automation is introduced for any of this.
 
-**Gate 15H-D (isolated restore validation) and Gate 15H-E
-(documentation/TBD closeout) have not started.** `TBD-PAY-001`,
-`TBD-SEC-005`, and `TBD-SEC-006` are unaffected by this gate.
+**15H-D — isolated restore validation (COMPLETE).** The real production
+artifact above was decrypted (private identity supplied by the operator
+in a temporary, `chmod 600`, non-repository, non-cloud-synced file;
+never printed or logged) into a temporary plaintext custom-format dump,
+structurally verified with `pg_restore --list` (archive header
+confirmed `dbname: neondb`, 165 TOC entries, all 24 expected tables and
+their data sections, all expected constraints/indexes/FKs present), and
+restored into a freshly-created, isolated local PostgreSQL 18.6
+database (`melodia_restore_test`, `127.0.0.1:5432` — never Neon, never
+`melodia_dev`). `pg_restore` exited `0` with zero warnings and zero
+errors. Post-restore validation, read-only and aggregate-only
+throughout (no row contents, no PII reported anywhere):
+
+- **Schema**: 24/24 expected `public` tables present.
+- **Migration metadata**: `drizzle.__drizzle_migrations` holds 7
+  rows, matching the 7 committed migration files exactly.
+- **Auth/admin**: `admin_users`=1, `auth_users`=1, `auth_accounts`=1,
+  `auth_sessions`=5, zero orphaned `admin_users → auth_users`
+  references.
+- **Business data** (aggregate counts, zero legitimately valid at this
+  pre-launch stage): `campaigns`=1, `products`=6, `sellers`=59,
+  `bundles`=0, `orders`=0, `order_items`=0,
+  `order_bundle_components`=0, `campaign_events`=2, `order_events`=0,
+  `payments`=0, `payment_events`=0, `seller_settlements`=0,
+  `seller_settlement_orders`=0.
+- **Counter integrity**: `order_number_counters` structurally valid
+  (0 rows, consistent with 0 orders).
+- **Referential integrity**: zero orphans across all 7 tested
+  relationships (`admin_users→auth_users`, `orders→campaigns`,
+  `order_items→orders`, `payments→orders`, `order_events→orders`,
+  `payment_events→payments`, `seller_settlement_orders→seller_settlements`).
+
+An application-level login test was deliberately **not** performed —
+DB-level integrity evidence was judged sufficient and proportionate
+for this gate; it remains a cheap optional future addition, not a
+requirement this gate depends on.
+
+**Cleanup**: the temporary private identity and temporary plaintext
+dump were removed immediately after validation; the isolated
+`melodia_restore_test` database was retained only until this evidence
+was recorded, then dropped (confirmed: it no longer exists;
+`melodia_dev` confirmed untouched throughout, still 24 tables); the
+temporary restore log and temporary directory were removed. The
+encrypted production artifact itself was never modified (SHA-256
+re-verified identical before and after the entire exercise) and
+remains retained locally pending the operator's own decision on when
+to remove the local copy — the authoritative independent retained
+copy is the encrypted artifact already in kDrive, not the local one.
+
+**Recovery chain now proven end-to-end**: production PostgreSQL data
+→ `pg_dump` → age encryption → independent encrypted artifact (kDrive)
+→ age decryption → valid PostgreSQL custom archive → clean PostgreSQL
+18.6 restore → schema/migration/data/counter/referential-integrity
+validation.
+
+**Operational restore procedure** (for any future real recovery need):
+1. Obtain the encrypted `.dump.age` artifact (from kDrive, or the
+   local copy if still present).
+2. Retrieve the age private identity from its separate secure storage
+   (never the backup workstation).
+3. Create an isolated PostgreSQL 18 restore target — never `melodia_dev`,
+   never production.
+4. Decrypt into a protected (`chmod 600`), temporary custom-format dump.
+5. Validate with `pg_restore --list` before committing to a full restore.
+6. Explicitly verify the target is local/isolated — never Neon.
+7. `pg_restore` into the clean, isolated target.
+8. Validate schema, migration metadata, aggregate business/event data,
+   counter integrity, and referential integrity.
+9. Remove the temporary plaintext dump and the temporary private
+   identity immediately.
+10. Remove the isolated restore environment once validation evidence
+    is recorded.
+
+**15H-E — documentation closeout (COMPLETE).** This record, together
+with the corresponding `docs/09-SECURITY.md` update (the production
+launch checklist's "Database restore procedure understood" item now
+checked, and `TBD-SEC-007` marked **RESOLVED**), is that closeout.
+
+**Gate 15H is COMPLETE** (15H-A, 15H-B, 15H-C, 15H-D, 15H-E all done).
+**`TBD-SEC-007` is RESOLVED.** `TBD-PAY-001`, `TBD-SEC-005`, and
+`TBD-SEC-006` are unaffected and remain in their own prior state.
 
 ---
 
@@ -3229,7 +3307,7 @@ Application implementation:
     Phase 12  Documents and exports                  COMPLETE
     Phase 13  Statistics and dashboard        COMPLETE
     Phase 14  Security and resilience hardening  COMPLETE (Gate 14A/14B/14C/14D/14E/14F/14G all done)
-    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D done, 15E/15F ready to close — production admin exists, Resend infrastructure validated (app-level E2E deferred), no active campaign, TBD-SEC-007 open, TBD-PAY-001 unresolved — remaining Phase 15 work pending)
+    Phase 15  Production preparation             IN PROGRESS (Gate 15A/15B/15C/15D/15H done, 15E/15F ready to close — production admin exists, Resend infrastructure validated (app-level E2E deferred), backup/restore validated (TBD-SEC-007 RESOLVED), no active campaign, TBD-PAY-001 unresolved — remaining Phase 15 work pending)
     Phase 16+ Not started
 
 Phase 5 covers campaign identity/lifecycle, Product master data,
