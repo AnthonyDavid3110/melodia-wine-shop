@@ -2058,6 +2058,20 @@ Use small controlled amounts where possible.
 Production infrastructure is operational but campaign does not need to be
 publicly launched yet.
 
+**Local readiness status**: all currently executable local Phase 15
+production-readiness checks are complete (Gates 15A–15F and 15H;
+`09-SECURITY.md` §79's five locally-verifiable checklist items —
+no production secrets in Git, `.env` files ignored, error pages
+exposing no internals, logs reviewed for PII, dependency
+vulnerabilities reviewed — all checked). **Remaining Phase 15 work
+depends on external, business, or real-campaign conditions**:
+`TBD-PAY-001` (Saferpay LIVE merchant onboarding and production
+payment validation), `TBD-SEC-005` (data-retention decision),
+`TBD-SEC-006` (privacy/legal content), final real campaign/content
+review, and the deferred application-level transactional-email E2E
+(Gate 15F) once a genuine campaign order exists. **Phase 15 is not
+yet complete** — local work is exhausted, not the phase itself.
+
 ---
 
 ## Phase 15 Gate 15A — repository production-config readiness (verified complete)
@@ -2459,9 +2473,11 @@ bootstrapped; Saferpay LIVE is not configured; Resend production
 activation/validation remains outstanding; final production content
 review remains outstanding; campaign configuration and activation
 remain outstanding — activation is effectively the public-sale launch
-switch. **`TBD-SEC-007` (backup/restore policy) remains OPEN** — Neon
-Free-plan 6-hour PITR only, no scheduled snapshots (Gate 15B); the
-domain cutover does not resolve, close, or downgrade this requirement.
+switch. At the time of this gate, **`TBD-SEC-007` (backup/restore
+policy) remained open** — Neon Free-plan 6-hour PITR only, no
+scheduled snapshots (Gate 15B); the domain cutover did not resolve,
+close, or downgrade this requirement. (`TBD-SEC-007` was subsequently
+resolved by Gate 15H.)
 
 ## Phase 15 Gate 15E — production admin bootstrap (ready to close)
 
@@ -2526,8 +2542,9 @@ was activated; Saferpay LIVE is not configured; Resend production
 activation/validation remains outstanding; final production content
 review remains outstanding; campaign configuration and activation
 remain outstanding (activation is effectively the public-sale launch
-switch). **`TBD-SEC-007` (backup/restore policy) remains OPEN**,
-unaffected by this gate.
+switch). At the time of this gate, **`TBD-SEC-007` (backup/restore
+policy) remained open**, unaffected by this gate. (`TBD-SEC-007` was
+subsequently resolved by Gate 15H.)
 
 ## Phase 15 Gate 15F — Resend production activation (ready to close)
 
@@ -2618,8 +2635,9 @@ workflow has been tested.** No campaign exists or was activated; no
 order was created; Saferpay LIVE is not configured
 (`TBD-PAY-001` unresolved); final production content review,
 campaign configuration, and campaign activation remain outstanding.
-**`TBD-SEC-007` (backup/restore policy) remains OPEN**, unaffected by
-this gate.
+At the time of this gate, **`TBD-SEC-007` (backup/restore policy)
+remained open**, unaffected by this gate. (`TBD-SEC-007` was
+subsequently resolved by Gate 15H.)
 
 ## Phase 15 Gate 15H — backup / restore policy (`TBD-SEC-007`) (COMPLETE)
 

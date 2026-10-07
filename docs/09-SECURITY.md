@@ -1879,9 +1879,15 @@ Before launch verify:
         backup has not yet been proven — see the next item and
         Gate 15H-D
 
-    [ ] No production secrets in Git
+    [x] No production secrets in Git — current tracked tree and the
+        full git history (all commits) reviewed; no production
+        secret detected; `.env.example` contains placeholders only
+        (Phase 15 local readiness review)
 
-    [ ] .env files ignored
+    [x] .env files ignored — `.env*` ignored with `!.env.example`
+        kept intentionally trackable; representative production/
+        local env filenames verified against the ignore rules
+        (Phase 15 local readiness review)
 
     [x] Individual admin accounts configured — the first production
         administrator was bootstrapped via `pnpm bootstrap:admin`,
@@ -1921,9 +1927,20 @@ Before launch verify:
         real browser with zero CSP console violations across public/
         admin/interactive flows (§50/§51 above)
 
-    [ ] Error pages do not expose internals
+    [x] Error pages do not expose internals — production-facing
+        error paths reviewed (root error boundary, admin Server
+        Action catch blocks, the Saferpay webhook); only generic,
+        safe, user-facing messages; no stack trace, raw exception,
+        or internal provider/database detail exposed (Phase 15
+        local readiness review)
 
-    [ ] Logs reviewed for unnecessary personal data
+    [x] Logs reviewed for unnecessary personal data — every
+        non-test `console.*` call site reviewed; no customer PII,
+        payment data, auth token, or production credential logging
+        found (the interactive `bootstrap:admin` CLI echoing the
+        operator's own just-entered email back to their own
+        terminal is not a production/server logging concern)
+        (Phase 15 local readiness review)
 
     [x] Email domain authentication configured — `ecmelodia.ch`
         verified in Resend (SPF/DKIM/DMARC, Gate 11A); production
@@ -1932,7 +1949,29 @@ Before launch verify:
         the deployed application's own order-confirmation dispatch
         path remains untested in production (§61 above)
 
-    [ ] Dependency vulnerabilities reviewed
+    [x] Dependency vulnerabilities reviewed — `pnpm audit`: 15
+        findings (1 critical, 8 high, 6 moderate), each individually
+        traced with `pnpm why`, not merely counted. 14 of 15 are
+        dev/lint/build tooling (the `shadcn` CLI, `drizzle-kit`,
+        ESLint/minimatch chains) with zero production-runtime
+        reachability. **One genuine production-dependency finding
+        remains, documented as a residual, not hidden**: `sharp`
+        0.35.4 (pulled in via `next`'s own direct dependencies),
+        HIGH, CVE-2026-96889, patched at `>=0.35.5`. `next/image` is
+        used by the application; the affected path requires
+        attacker-controlled SVG/image processing; V1 has no
+        file-upload capability and current product image URLs are
+        not an attacker-controlled upload surface — no currently
+        reachable exploitation path was identified in this
+        application's design. Whether Vercel's managed deployment
+        invokes the locally-installed `sharp` binary at all (versus
+        Vercel's own separate managed Image Optimization) was not
+        asserted either way — not established from repository
+        evidence. Classified as a documented residual dependency
+        risk, non-blocking for this closeout; upgrading to a patched
+        `sharp` release is recommended during the next controlled
+        dependency-maintenance pass (Phase 15 local readiness
+        review)
 
     [x] Database restore procedure understood — a real encrypted
         production backup was successfully decrypted and restored
