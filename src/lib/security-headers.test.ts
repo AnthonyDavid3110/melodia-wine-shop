@@ -90,8 +90,10 @@ describe("buildContentSecurityPolicy", () => {
     expect(directives(buildContentSecurityPolicy(false))["form-action"]).toBe("'self'");
   });
 
-  it("scopes img-src to same-origin plus data:/blob: only — no external image host", () => {
-    expect(directives(buildContentSecurityPolicy(false))["img-src"]).toBe("'self' data: blob:");
+  it("scopes img-src to same-origin, data:/blob:, and exactly the two approved Blob origins — no other external image host (Gate ARCH-006-C)", () => {
+    expect(directives(buildContentSecurityPolicy(false))["img-src"]).toBe(
+      "'self' data: blob: https://du7clicrjnwnwcsd.public.blob.vercel-storage.com https://wuzsx6hg7jjpz5pr.public.blob.vercel-storage.com",
+    );
   });
 
   it("scopes font-src to same-origin only (next/font self-hosts)", () => {
@@ -116,5 +118,26 @@ describe("buildContentSecurityPolicy", () => {
       expect(csp["script-src"]).toContain("'unsafe-inline'");
       expect(csp["style-src"]).toContain("'unsafe-inline'");
     }
+  });
+
+  describe("img-src — Vercel Blob origins (Gate ARCH-006-C)", () => {
+    it("includes both exact approved Blob origins", () => {
+      const imgSrc = directives(buildContentSecurityPolicy(false))["img-src"];
+      expect(imgSrc).toContain("https://du7clicrjnwnwcsd.public.blob.vercel-storage.com");
+      expect(imgSrc).toContain("https://wuzsx6hg7jjpz5pr.public.blob.vercel-storage.com");
+    });
+
+    it("preserves the existing 'self', data: and blob: entries", () => {
+      const imgSrc = directives(buildContentSecurityPolicy(false))["img-src"] ?? "";
+      expect(imgSrc).toContain("'self'");
+      expect(imgSrc).toContain("data:");
+      expect(imgSrc).toContain("blob:");
+    });
+
+    it("never allows a bare https: scheme (every origin is an exact hostname)", () => {
+      const imgSrc = directives(buildContentSecurityPolicy(false))["img-src"] ?? "";
+      const tokens = imgSrc.split(" ");
+      expect(tokens).not.toContain("https:");
+    });
   });
 });

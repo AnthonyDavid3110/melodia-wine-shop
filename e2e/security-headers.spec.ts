@@ -44,6 +44,15 @@ test("Content-Security-Policy has no wildcard source and denies framing", async 
   expect(csp).toContain("object-src 'none'");
 });
 
+test("Content-Security-Policy img-src carries both approved Vercel Blob origins (Gate ARCH-006-C)", async ({
+  page,
+}) => {
+  const response = await page.goto("/");
+  const csp = response?.headers()["content-security-policy"] ?? "";
+  expect(csp).toContain("https://du7clicrjnwnwcsd.public.blob.vercel-storage.com");
+  expect(csp).toContain("https://wuzsx6hg7jjpz5pr.public.blob.vercel-storage.com");
+});
+
 test("X-Content-Type-Options is exactly nosniff", async ({ page }) => {
   const response = await page.goto("/");
   expect(response?.headers()["x-content-type-options"]).toBe("nosniff");

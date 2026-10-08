@@ -1189,6 +1189,37 @@ Do not weaken CSP globally simply to solve one integration issue.
 > browser never talks to it directly (server-side-only client, top-
 > level-redirect Payment Page).
 
+**Update (Phase 15, Gate ARCH-006-C — image delivery/CSP, `TBD-ARCH-006`
+still OPEN):** `img-src` now also allows the two approved public Vercel
+Blob store origins (one Development/Preview, one Production, both
+Frankfurt/FRA1, both `Public` access), confirmed directly from the
+Vercel dashboard — never derived from or printed alongside a
+`BLOB_READ_WRITE_TOKEN`:
+
+    https://du7clicrjnwnwcsd.public.blob.vercel-storage.com
+    https://wuzsx6hg7jjpz5pr.public.blob.vercel-storage.com
+
+Both hostnames are exact — no wildcard host, no bare `https:` scheme
+allowance. They are listed statically in every environment rather than
+branched on `NODE_ENV`/`VERCEL_ENV`: both are public, non-secret CDN
+identifiers, so allowing both everywhere costs nothing security-wise
+and avoids a Preview deployment being unable to render images because
+only one environment's hostname was allowlisted at build time. The
+single shared source for both this CSP and `next.config.ts`'s
+`images.remotePatterns` is `src/lib/blob-image-origins.ts`
+(`BLOB_STORAGE_HOSTNAMES`) — the two hostnames are never duplicated as
+separate literals. `next.config.ts` restricts `images.remotePatterns`
+to exactly four entries (two hostnames × `/products/**` and
+`/bundles/**` — the only two pathname prefixes
+`src/infrastructure/storage/upload-image.ts`'s
+`generateImagePathname()` ever produces), never an unrestricted
+pathname. **Scope and limitation**: this gate is delivery/CSP only —
+there is still no admin upload UI, no Server Action change, and
+`TBD-ARCH-006` remains explicitly **OPEN**; `wine-row.tsx`/
+`discovery-box.tsx` and the admin product/bundle forms were not
+modified, and a broken-but-present `imageUrl` still has no fallback
+(unchanged, tracked separately, not fixed by this gate).
+
 ---
 
 # 52. HTTPS

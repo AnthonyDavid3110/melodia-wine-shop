@@ -19,16 +19,13 @@
  * XSS defense; this is defense-in-depth for everything else CSP
  * covers (clickjacking, MIME-sniffing, unauthorized resource origins).
  *
- * `img-src` is scoped to same-origin + `data:`/`blob:` only, matching
- * what actually renders today (every seeded product/bundle has
- * `imageUrl = null`, rendering the `PlaceholderBottle` fallback instead
- * — see e2e/public-catalog.spec.ts). The admin product/bundle forms'
- * own Zod validation requires an absolute `http(s)://` URL for
- * `imageUrl`, but `next.config.ts` has no `images.remotePatterns`
- * configured, so `next/image` already rejects any such URL today
- * regardless of this CSP — a pre-existing, untested, unrelated gap
- * (TBD-ARCH-006, image storage provider, is still unresolved). This
- * CSP deliberately does not widen `img-src` to paper over that gap.
+ * `img-src` is scoped to same-origin + `data:`/`blob:` plus the two
+ * approved public Vercel Blob store origins (Phase 15, TBD-ARCH-006,
+ * Gate ARCH-006-C — `blob-image-origins.ts`'s `BLOB_STORAGE_HOSTNAMES`,
+ * the same source `next.config.ts`'s `images.remotePatterns` builds
+ * from). No wildcard host, no bare `https:` scheme allowance — every
+ * origin is an exact hostname. TBD-ARCH-006 itself remains open: this
+ * is delivery/CSP only, there is still no admin upload UI.
  *
  * HTTPS enforcement and HSTS are NOT set here — Vercel's own platform
  * already forwards HTTP to HTTPS (308) and applies HSTS automatically
@@ -40,6 +37,8 @@
  * — that would add a new PII-adjacent telemetry surface (client URLs/
  * IPs) not required by TBD-SEC-004's narrow scope.
  */
+
+import { BLOB_STORAGE_HOSTNAMES } from "./blob-image-origins";
 
 export interface SecurityHeader {
   key: string;
@@ -58,11 +57,12 @@ export interface SecurityHeader {
  * directly, not by E2E.
  */
 export function buildContentSecurityPolicy(isDevelopment: boolean): string {
+  const blobOrigins = BLOB_STORAGE_HOSTNAMES.map((hostname) => `https://${hostname}`).join(" ");
   const directives = [
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob: ${blobOrigins}`,
     "font-src 'self'",
     "connect-src 'self'",
     "object-src 'none'",
