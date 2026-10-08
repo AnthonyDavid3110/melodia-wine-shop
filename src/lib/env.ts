@@ -154,6 +154,21 @@ export const serverSchema = z.object({
    * point an identity is actually derived, never at module load time.
    */
   RATE_LIMIT_SECRET: z.string().optional(),
+
+  /**
+   * Vercel Blob read-write token (Phase 15, TBD-ARCH-006, Gate
+   * ARCH-006-B — storage foundation only, no upload UI yet). Optional
+   * here for the same "don't break unrelated module loads" reason as
+   * every other secret above — the real adapter
+   * (`src/infrastructure/storage/vercel-blob-provider.ts`) asserts this
+   * is present at the point an upload is actually attempted, never at
+   * module load time. The double-gated fake test provider
+   * (`fake-test-provider.ts`) never reads this variable at all. Scoped
+   * per Vercel environment (separate Development/Preview vs. Production
+   * Blob store tokens) — never the Production token in local
+   * development.
+   */
+  BLOB_READ_WRITE_TOKEN: z.string().optional(),
 });
 
 /**
@@ -196,6 +211,7 @@ export const serverEnv = parseEnv(serverSchema, {
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   EMAIL_FROM: process.env.EMAIL_FROM,
   RATE_LIMIT_SECRET: process.env.RATE_LIMIT_SECRET,
+  BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
 });
 
 export const publicEnv = parseEnv(publicSchema, {});

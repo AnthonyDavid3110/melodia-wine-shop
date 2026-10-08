@@ -1,3 +1,11 @@
+overrides:
+  # next@16.3.8 declares sharp as an optional dependency at ^0.35.4
+  # (CVE-2026-96889, HIGH, librsvg, patched at >=0.35.5). 0.35.5 is a
+  # real patch release, not a release candidate, and already satisfies
+  # next's own declared ^0.35.4 range — this is a minimal, in-range
+  # patch bump, not a version override that fights next's own
+  # resolution.
+  sharp: "^0.35.5"
 allowBuilds:
   esbuild: true
   sharp: false
