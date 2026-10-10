@@ -66,11 +66,35 @@ test.afterAll(async () => {
 });
 
 // A real, tiny, valid 4x4 JPEG — generated once and reused, never an
-// external/untrusted file. Minimal enough to keep the suite fast.
+// external/untrusted file. Minimal enough to keep most of the suite fast.
 const TINY_JPEG = Buffer.from(
   "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAEAAQDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAAAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AAA//2Q==",
   "base64",
 );
+
+/**
+ * A realistically-sized JPEG (real photo dimensions, random noise so it
+ * doesn't compress away to almost nothing, like an actual phone photo)
+ * — generated in-process via `sharp`, never an external/untrusted
+ * file. Deliberately NOT tiny: every other fixture in this file (and
+ * in `validate-image-upload.test.ts`) was a few hundred bytes, which
+ * is exactly why Next.js's own default Server Action body limit
+ * (1 MB, independent of and far below this app's 5 MiB upload policy)
+ * was never exercised by any automated test and went unnoticed until
+ * a real admin hit it in practice. Kept just under the 5 MiB content
+ * policy so this test proves a legitimate large-but-valid upload
+ * actually succeeds end-to-end, not just that validation logic runs.
+ */
+const { default: sharp } = await import("sharp");
+const REALISTIC_JPEG = await (async () => {
+  const width = 3000;
+  const height = 2000;
+  const raw = Buffer.alloc(width * height * 3);
+  for (let i = 0; i < raw.length; i++) raw[i] = Math.floor(Math.random() * 256);
+  return sharp(raw, { raw: { width, height, channels: 3 } })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+})();
 
 test("an admin can upload a product image, see a local preview, and the association is persisted via the fake storage provider", async ({
   page,
@@ -112,6 +136,73 @@ test("an admin can upload a product image, see a local preview, and the associat
   await expect(page.getByRole("button", { name: "Supprimer l’image" })).toBeVisible({
     timeout: 15000,
   });
+});
+
+test("a realistically-sized photo (several MB, within the 5 MiB policy) uploads successfully — regression test for Next's default 1 MB Server Action body limit", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  expect(REALISTIC_JPEG.byteLength).toBeGreaterThan(1024 * 1024);
+  expect(REALISTIC_JPEG.byteLength).toBeLessThan(5 * 1024 * 1024);
+
+  await createAndLogInAsAdmin(page, "image-realistic");
+
+  const name = unique("Syrah E2E");
+  await page.goto("/admin/produits/nouveau");
+  await page.getByLabel("Nom").fill(name);
+  await page.getByLabel("Catégorie").fill("RED");
+  await page.getByLabel("Photo du vin").setInputFiles({
+    name: "realistic-photo.jpg",
+    mimeType: "image/jpeg",
+    buffer: REALISTIC_JPEG,
+  });
+
+  await page.getByRole("button", { name: "Créer le produit" }).click();
+  // Without next.config.ts's experimental.serverActions.bodySizeLimit
+  // raised above Next's 1 MB default, this request fails with a raw
+  // 413 "Body exceeded 1 MB limit" crash — confirmed directly against
+  // a real admin session before this fix existed.
+  await expect(page).toHaveURL(/\/admin\/produits\/[0-9a-f-]{36}$/, { timeout: 15000 });
+  const productId = page.url().split("/").pop()!;
+  createdProductIds.push(productId);
+
+  const [row] = await db
+    .select({ imageUrl: products.imageUrl })
+    .from(products)
+    .where(eq(products.id, productId));
+  expect(row?.imageUrl).toMatch(/^https:\/\/fake-blob\.test\/products\/[0-9a-f-]{36}\.jpg$/);
+});
+
+test("a file over the 5 MiB policy is rejected with a clear validation error, never a raw transport-layer crash", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  const oversized = Buffer.concat([REALISTIC_JPEG, Buffer.alloc(300 * 1024, 0)]);
+  expect(oversized.byteLength).toBeGreaterThan(5 * 1024 * 1024);
+  expect(oversized.byteLength).toBeLessThan(6 * 1024 * 1024);
+
+  await createAndLogInAsAdmin(page, "image-oversized");
+
+  const name = unique("Oversized E2E");
+  await page.goto("/admin/produits/nouveau");
+  await page.getByLabel("Nom").fill(name);
+  await page.getByLabel("Catégorie").fill("RED");
+  await page.getByLabel("Photo du vin").setInputFiles({
+    name: "oversized.jpg",
+    mimeType: "image/jpeg",
+    buffer: oversized,
+  });
+
+  await page.getByRole("button", { name: "Créer le produit" }).click();
+  // Stays on the form with the app's own clear French error — proves
+  // the raised transport ceiling (6mb) is wide enough to let this
+  // request reach application code, where the 5 MiB policy correctly
+  // rejects it, rather than Next's own generic 413 crash intercepting
+  // it first.
+  await expect(page.getByText(/dépasse la taille maximale de 5 Mo/)).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(page).toHaveURL(/\/admin\/produits\/nouveau$/);
 });
 
 test("an admin can replace an existing product image", async ({ page }) => {
