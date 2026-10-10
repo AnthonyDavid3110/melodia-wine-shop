@@ -914,6 +914,14 @@ Validate:
 
 Do not trust filename extension alone.
 
+**Implemented (Phase 15, Gate ARCH-006-D — product images; bundle
+images, Gate ARCH-006-E, pending)**: JPEG/PNG/WebP accepted; AVIF
+decided **against** (the "possibly" above is now resolved: rejected,
+alongside SVG/GIF/animated images) —
+`src/domain/products/validate-image-upload.ts`. The decoded format
+from `sharp`, never the browser-supplied MIME type or filename, is
+authoritative.
+
 ---
 
 # 44. Uploaded filenames
@@ -925,6 +933,13 @@ Generate controlled storage identifiers.
 Avoid:
 
     ../../something
+
+**Implemented**: `generateImagePathname()`
+(`src/infrastructure/storage/upload-image.ts`, Gate ARCH-006-B) is the
+only producer of a storage pathname — `kind/<uuid>.<ext>`, never a
+user-supplied filename — and `uploadImage()` independently re-validates
+that exact shape before any provider call, defense-in-depth against a
+future caller bypass.
 
 or filename-based path traversal risks.
 
@@ -1954,7 +1969,36 @@ Before launch verify:
 
     [x] CSV formula injection handled — ABUSE-EXPORT-002
 
-    N/A — File uploads: no upload feature exists in V1 (ABUSE-MISC-002)
+    [x] File uploads: product image upload implemented and tested
+        (Phase 15 Gate ARCH-006-D, ABUSE-MISC-002) —
+        `requireAdmin()` first; size/signature/decoded-format/
+        dimension validation via `sharp` (never `File.type`/
+        `File.name`); JPEG/PNG/WebP only, SVG/GIF/AVIF rejected;
+        full re-encode strips EXIF/metadata by default; controlled
+        `kind/<uuid>.<ext>` storage paths, never a user filename.
+        Bundle image upload (Gate ARCH-006-E) is not yet
+        implemented — see `docs/05-ARCHITECTURE.md` TBD-ARCH-006
+        (still OPEN)
+
+        **Gate ARCH-006-D final-review findings (fixed, not deferred)**:
+        (1) `next/image` throws a hard render error — not a graceful
+        broken-image fallback — for any `imageUrl` host outside
+        `images.remotePatterns`; a legacy/invalid-host value (e.g.
+        predating this gate, or set by a future out-of-band write)
+        would otherwise crash the entire public page. Fixed with
+        `isAllowedImageHost()` (`src/lib/blob-image-origins.ts`) —
+        `wine-row.tsx` and `discovery-box.tsx` (shared defect, both
+        fixed) now fall back to the existing placeholder for any host
+        outside the two approved Blob origins, never widening
+        `remotePatterns`/CSP. Regression-tested
+        (`e2e/public-catalog.spec.ts`). (2) `updateProductAction`'s
+        "preserve the existing image when no new file is supplied"
+        path re-reads `imageUrl` immediately before the write instead
+        of reusing a value captured at the start of the action —
+        closes a narrow window where a concurrent
+        `removeProductImageAction` (or another concurrent edit) could
+        otherwise have its change silently clobbered by a stale
+        preserved value.
 
     [x] Security headers reviewed — Phase 14 Gate 14C, static CSP +
         X-Content-Type-Options/Referrer-Policy/Permissions-Policy/
@@ -2092,7 +2136,7 @@ surface exists in this application).
 | ABUSE-HDR-001 | Missing HTTP security headers / CSP | Every response carries CSP, frame protection, MIME protection, referrer policy, permissions policy | `next.config.ts` `headers()` (Gate 14C) | `security-headers.test.ts`, `e2e/security-headers.spec.ts` | VERIFIED |
 | ABUSE-XSS-001 | XSS via customer-supplied text (delivery note and other free-text fields) | Customer-supplied text is never rendered as trusted HTML/markup | Browser UI: React JSX's default text escaping (no `dangerouslySetInnerHTML`/raw-HTML sink exists anywhere in the codebase — re-confirmed by direct search during Gate 14E). Transactional HTML email: explicit `escapeHtml()` applied to every interpolated field, including the delivery note, before it reaches the HTML output. CSP (Gate 14C) is defense-in-depth on top of both, not the primary control. | Code audit (React's escaping is a framework guarantee, not independently re-tested here) + `escape-html.test.ts` (exhaustive unit coverage of the email-HTML escaping function) + `security-headers.test.ts`/`e2e/security-headers.spec.ts` for the CSP layer | VERIFIED — code audit |
 | ABUSE-MISC-001 | Open redirect via a user-controlled parameter | No redirect destination is ever derived from request input | `proxy.ts` sets a `from` query parameter on the login redirect, but the login flow never reads or consumes it — `login-form.tsx` always navigates to the fixed internal `/admin` destination on success; no `?returnUrl=`/`?next=`-style pattern exists anywhere in the codebase | Code audit (no dynamic redirect surface exists to exercise; a test asserting a nonexistent endpoint does not redirect externally would prove nothing) | NOT APPLICABLE — no attack surface exists in V1 |
-| ABUSE-MISC-002 | Image upload validation | — | — | Admin product/bundle images are an admin-typed external URL field (validated as `http(s)://` by Zod), never a binary file upload — there is no upload feature anywhere in V1 | NOT APPLICABLE — no file-upload surface in V1 |
+| ABUSE-MISC-002 | Image upload validation (malicious/malformed/oversized file, MIME spoofing, SVG/animated-image smuggling, path traversal via storage pathname) | `requireAdmin()` first; size checked before any byte read; `sharp`-decoded format (never `File.type`/`File.name`) restricted to JPEG/PNG/WebP; dimension cap; animated/multi-page rejected; full re-encode (strips EXIF/metadata, never upscales); controlled `kind/<uuid>.<ext>` pathname, independently re-validated by the storage boundary | `src/domain/products/validate-image-upload.ts`, `src/infrastructure/storage/upload-image.ts`'s `assertControlledPathname()` (Gate ARCH-006-B) | `validate-image-upload.test.ts` (valid JPEG/PNG/WebP, oversized, empty, garbage, corrupt-body, SVG, GIF, AVIF, excessive dimensions, MIME spoofing, EXIF stripping, animated rejection), `actions.test.ts` (unauthorized rejected before upload, forged `imageUrl` FormData field ignored, upload-before-DB-write ordering, upload/DB failure handling), `e2e/product-image-upload.spec.ts` | VERIFIED — product images only; bundle images (Gate ARCH-006-E) not yet implemented |
 | ABUSE-MISC-003 | Session expiration | — | — | Session validity is delegated entirely to Better Auth (`cookieCache` disabled, so every request re-validates against the database — see `resolveAdminFromAuthUserId`); this application adds no custom session-expiration logic of its own, so there is nothing application-specific to test beyond the already-verified `active`-flag re-validation (ABUSE-AUTH-003) | Library-internal behavior, not application code | NOT APPLICABLE — no custom application logic to verify |
 
 Gates 14B, 14C, and 14D's own test suites are referenced above as direct

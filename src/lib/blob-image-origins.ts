@@ -43,3 +43,26 @@ export function buildBlobRemotePatterns(): BlobRemotePattern[] {
     })),
   );
 }
+
+/**
+ * Whether `url`'s hostname is one of the two approved Blob origins
+ * (Phase 15, Gate ARCH-006-D review finding). `next/image` THROWS a
+ * hard render error — not a graceful broken-image fallback — for any
+ * host outside `images.remotePatterns`; a product/bundle `imageUrl`
+ * that predates this gate's upload feature (or was altered by a
+ * future, hypothetical write path) could carry a non-Blob host, which
+ * would otherwise crash the entire page it renders on. Callers use
+ * this to fall back to the existing placeholder instead of attempting
+ * `next/image` for an unrecognized host — never to widen
+ * `remotePatterns`/CSP, which remain exactly as strict as Gate
+ * ARCH-006-C left them. Malformed input (not a valid URL at all) is
+ * treated as not-allowed, never thrown.
+ */
+export function isAllowedImageHost(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (BLOB_STORAGE_HOSTNAMES as readonly string[]).includes(hostname);
+  } catch {
+    return false;
+  }
+}

@@ -7,6 +7,13 @@ import { z } from "zod";
  * §7): a curated suggestion list is offered in the UI via a
  * `<datalist>`, not enforced server-side. `slug` is absent (Gate 2C
  * §6) — generated automatically on create, preserved unchanged on edit.
+ *
+ * `imageUrl` is deliberately NOT a field here (Phase 15, Gate
+ * ARCH-006-D): the legacy manual-URL text field was removed from the
+ * admin form. `imageUrl` is now computed server-side in `actions.ts`
+ * exclusively from a validated/uploaded `File` (or preserved/nulled),
+ * never from a client-supplied string — a forged `FormData.imageUrl`
+ * field has nothing to attach to, since this schema has no such key.
  */
 export const productFormSchema = z.object({
   name: z.string().trim().min(1, "Le nom est requis.").max(200),
@@ -32,15 +39,6 @@ export const productFormSchema = z.object({
   shortDescription: z.string().trim().max(280).optional().or(z.literal("")),
   description: z.string().trim().max(2000).optional().or(z.literal("")),
   tastingNotes: z.string().trim().max(2000).optional().or(z.literal("")),
-  imageUrl: z
-    .string()
-    .trim()
-    .max(2000)
-    .optional()
-    .or(z.literal(""))
-    .refine((value) => !value || /^https?:\/\//.test(value), {
-      message: "L'URL de l'image doit commencer par http:// ou https://.",
-    }),
 });
 
 export type ProductFormValues = z.infer<typeof productFormSchema>;

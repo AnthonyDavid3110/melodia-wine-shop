@@ -1,6 +1,7 @@
 import Image from "next/image";
 import type { PublicBundle } from "@/domain/catalog/public-catalog";
 import { formatCHF } from "@/domain/money";
+import { isAllowedImageHost } from "@/lib/blob-image-origins";
 import { Display } from "@/components/ui/typography";
 import { AddToCartControl } from "@/components/cart/add-to-cart-control";
 import { PlaceholderBottle } from "./placeholder-bottle";
@@ -20,7 +21,14 @@ export function DiscoveryBoxSection({ bundles }: { bundles: PublicBundle[] }) {
 
   return (
     <section aria-label="Cartons découverte" className="flex flex-col gap-px">
-      {bundles.map((bundle) => (
+      {bundles.map((bundle) => {
+        // `next/image` throws a hard render error, not a graceful
+        // fallback, for a host outside `images.remotePatterns` — a
+        // legacy/invalid `imageUrl` must never be allowed to crash this
+        // page (Gate ARCH-006-D review finding, same shared defect as
+        // `wine-row.tsx`). Never widens the allowlist.
+        const hasRenderableImage = Boolean(bundle.imageUrl) && isAllowedImageHost(bundle.imageUrl!);
+        return (
         <div key={bundle.id} className="bg-accent relative py-16">
           <div className="text-primary-foreground mx-auto max-w-5xl px-5 sm:px-8">
             <div className="grid gap-10 md:grid-cols-2 md:items-center">
@@ -66,10 +74,10 @@ export function DiscoveryBoxSection({ bundles }: { bundles: PublicBundle[] }) {
               </div>
 
               <div className="flex items-end justify-center gap-3">
-                {bundle.imageUrl ? (
+                {hasRenderableImage ? (
                   <div className="relative h-40 w-full sm:h-52">
                     <Image
-                      src={bundle.imageUrl}
+                      src={bundle.imageUrl!}
                       alt={bundle.name}
                       fill
                       sizes="(min-width: 768px) 40vw, 80vw"
@@ -89,7 +97,8 @@ export function DiscoveryBoxSection({ bundles }: { bundles: PublicBundle[] }) {
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
     </section>
   );
 }

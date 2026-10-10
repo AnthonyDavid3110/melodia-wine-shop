@@ -46,9 +46,18 @@ export default defineConfig({
     // matching APP_BASE_URL's own "fail loudly at point of use" pattern)
     // works during e2e runs regardless of whether the developer's own
     // .env.local happens to define one for local `pnpm dev` use.
+    //
+    // Phase 15 Gate ARCH-006-D: same double-gated fake-provider pattern
+    // for product-image upload (src/infrastructure/storage/fake-test-provider.ts)
+    // — no real Blob upload happens during e2e runs. The fake provider
+    // returns a synthetic URL, proving the form/action/storage
+    // integration works end-to-end; it does NOT prove real Vercel Blob
+    // image delivery (that remains a separate, manual, Development-only
+    // verification — see the Gate ARCH-006-D report).
     env: {
       E2E_FAKE_PAYMENT_PROVIDER: "true",
       E2E_FAKE_EMAIL_PROVIDER: "true",
+      E2E_FAKE_STORAGE_PROVIDER: "true",
       RATE_LIMIT_SECRET: "e2e-test-only-fixed-secret-never-used-in-production",
     },
   },

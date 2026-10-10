@@ -41,6 +41,25 @@ export interface ProductFieldsInput {
   imageUrl: string | null;
 }
 
+/**
+ * `updateProduct()`'s own input (Phase 15, Gate ARCH-006-D review
+ * finding) — `imageUrl` is OPTIONAL here, and genuinely matters
+ * whether the key is present at all, not just whether its value is
+ * `null`: omitting it means the SQL `UPDATE`'s `SET` clause never
+ * mentions `image_url` at all, so this write cannot race a concurrent
+ * `setProductImage()` call (`removeProductImageAction`, or another
+ * concurrent edit) — there is nothing to clobber, because nothing is
+ * written. A fresh read immediately before the write would only have
+ * narrowed that window, not closed it; excluding the column from the
+ * statement itself is the actual fix. Pass `imageUrl: null` to
+ * explicitly clear it in the same write as other fields, or omit the
+ * key entirely to leave the stored value untouched — never pass
+ * `imageUrl: undefined` to mean "clear it".
+ */
+export type ProductUpdateInput = Omit<ProductFieldsInput, "imageUrl"> & {
+  imageUrl?: string | null;
+};
+
 /** Alphabetical — the reusable wine library, not campaign-ordered. */
 export async function listProducts(dbHandle: DbHandle = db) {
   return dbHandle.select().from(products).orderBy(asc(products.name));
@@ -98,13 +117,24 @@ export async function createProduct(input: ProductFieldsInput, dbHandle: DbHandl
 
 export async function updateProduct(
   id: string,
-  input: ProductFieldsInput,
+  input: ProductUpdateInput,
   dbHandle: DbHandle = db,
 ) {
+  // Destructuring `imageUrl` out and only conditionally spreading it
+  // back is what actually keeps it out of the `SET` clause when
+  // omitted — a key that was never added to the object is a key
+  // Drizzle's `.set()` never sees, not a value needing special
+  // undefined-handling.
+  const { imageUrl, ...rest } = input;
+  const values =
+    imageUrl === undefined
+      ? { ...rest, category: rest.category as ProductCategory }
+      : { ...rest, imageUrl, category: rest.category as ProductCategory };
+
   try {
     const [product] = await dbHandle
       .update(products)
-      .set({ ...input, category: input.category as ProductCategory })
+      .set(values)
       .where(eq(products.id, id))
       .returning();
     if (!product) {
@@ -122,6 +152,32 @@ export async function setProductActive(id: string, active: boolean, dbHandle: Db
   const [product] = await dbHandle
     .update(products)
     .set({ active })
+    .where(eq(products.id, id))
+    .returning();
+  if (!product) {
+    throw new ProductNotFoundError(id);
+  }
+  return product;
+}
+
+/**
+ * Surgical single-column write (Phase 15, Gate ARCH-006-D) — same
+ * pattern as `setProductActive`, deliberately not routed through
+ * `updateProduct()`'s full-row write: callers (the standalone
+ * remove-image action, and the create/update actions after a
+ * successful Blob upload) only ever know about the image, never need
+ * to re-fetch and re-pass every other field just to change this one.
+ * Never deletes the underlying Blob object — only ever changes the
+ * database reference.
+ */
+export async function setProductImage(
+  id: string,
+  imageUrl: string | null,
+  dbHandle: DbHandle = db,
+) {
+  const [product] = await dbHandle
+    .update(products)
+    .set({ imageUrl })
     .where(eq(products.id, id))
     .returning();
   if (!product) {

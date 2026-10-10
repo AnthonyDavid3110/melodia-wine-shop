@@ -2523,7 +2523,32 @@ not an architecture TBD.
 
 ## TBD-ARCH-006 — Image storage
 
-Select provider.
+**Status: OPEN** (product images done, bundle images pending).
+
+**Decision**: Vercel Blob, selected and implemented across Gates
+ARCH-006-A through ARCH-006-D:
+
+- **Gate ARCH-006-B**: `StorageProvider` boundary
+  (`src/infrastructure/storage/`) — `uploadImage()`, controlled
+  `kind/<uuid>.<ext>` pathname generation, double-gated fake provider
+  for tests, real Vercel Blob adapter. `sharp` added as a direct
+  dependency (previously only transitive via `next`, unresolvable from
+  application code — confirmed empirically during Gate ARCH-006-D's
+  preflight).
+- **Gate ARCH-006-C**: `next.config.ts` `images.remotePatterns` and
+  CSP `img-src` restricted to exactly the two approved public Blob
+  store origins, scoped to `/products/**` and `/bundles/**` — no
+  wildcard host.
+- **Gate ARCH-006-D**: product image upload implemented —
+  `src/domain/products/validate-image-upload.ts` (format/dimension/
+  decodability validation via `sharp`, full re-encode that strips
+  metadata by default), wired into the product admin create/update
+  Server Actions and a dedicated confirmed remove-image action. The
+  legacy manual image-URL admin field was removed.
+
+**Remaining**: bundle/discovery-box image upload (Gate ARCH-006-E) —
+the same `StorageProvider`/validation modules apply, bundles are not
+yet wired to them. `TBD-ARCH-006` stays open until that gate closes.
 
 ## TBD-ARCH-007 — PDF library — RESOLVED (Phase 12 Gate 12B)
 

@@ -19,7 +19,7 @@ import { expect, test } from "./support/fixtures";
 config({ path: ".env.local" });
 
 const { db } = await import("../src/infrastructure/database/client");
-const { bundles, campaignProducts, campaigns } =
+const { bundles, campaignProducts, campaigns, products } =
   await import("../src/infrastructure/database/schema");
 const { eq } = await import("drizzle-orm");
 
@@ -73,6 +73,41 @@ test("missing product images render the editorial placeholder with a meaningful 
       .locator("#selection")
       .getByRole("img", { name: "Photo provisoire — Chasselas", exact: true }),
   ).toBeVisible();
+});
+
+test("a product with a legacy/non-Blob imageUrl falls back to the placeholder instead of crashing the page (Gate ARCH-006-D review finding)", async ({
+  page,
+}) => {
+  // `next/image` throws a hard render error — not a graceful
+  // broken-image fallback — for any host outside
+  // `images.remotePatterns`. Before Gate ARCH-006-D's `imageUrl` was
+  // only ever an admin-typed arbitrary external URL; a legacy row
+  // (predating the Blob-only upload feature) carrying such a host must
+  // never take down the whole public page.
+  const [chasselas] = await db.select().from(products).where(eq(products.name, "Chasselas"));
+  if (!chasselas) {
+    throw new Error("This suite requires the seeded 'Chasselas' product.");
+  }
+
+  try {
+    await db
+      .update(products)
+      .set({ imageUrl: "https://evil.example.com/not-a-real-blob-host.jpg" })
+      .where(eq(products.id, chasselas.id));
+
+    const response = await page.goto("/");
+    expect(response?.status()).toBe(200);
+    // Falls back to the same editorial placeholder a null imageUrl
+    // already uses — never attempts to render the disallowed host.
+    await expect(
+      page
+        .locator("#selection")
+        .getByRole("img", { name: "Photo provisoire — Chasselas", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  } finally {
+    await db.update(products).set({ imageUrl: null }).where(eq(products.id, chasselas.id));
+  }
 });
 
 test("the Discovery Box renders the real database composition", async ({ page }) => {

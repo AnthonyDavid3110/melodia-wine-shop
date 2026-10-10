@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { formatCHF } from "@/domain/money";
+import { isAllowedImageHost } from "@/lib/blob-image-origins";
 import type { PublicWine } from "@/domain/catalog/public-catalog";
 import { Body, H3, Metadata } from "@/components/ui/typography";
 import { AddToCartControl } from "@/components/cart/add-to-cart-control";
@@ -29,6 +30,12 @@ export function WineRow({ wine, index }: { wine: PublicWine; index: number }) {
   const primaryText = wine.shortDescription ?? wine.description;
   const tastingText =
     wine.tastingNotes && wine.tastingNotes !== primaryText ? wine.tastingNotes : null;
+  // `next/image` throws a hard render error, not a graceful fallback,
+  // for a host outside `images.remotePatterns` — a legacy/invalid
+  // `imageUrl` (predating Gate ARCH-006-D's upload feature, or set by
+  // any future out-of-band write) must never be allowed to crash this
+  // page (Gate ARCH-006-D review finding). Never widens the allowlist.
+  const hasRenderableImage = Boolean(wine.imageUrl) && isAllowedImageHost(wine.imageUrl!);
 
   return (
     <div className="border-border relative grid items-center gap-6 border-t py-12 first:border-t-0 first:pt-0 md:grid-cols-2 md:gap-14">
@@ -42,9 +49,9 @@ export function WineRow({ wine, index }: { wine: PublicWine; index: number }) {
 
       <div className={imageFirst ? "relative order-1" : "relative order-1 md:order-2"}>
         <div className="bg-sand relative flex h-56 items-center justify-center sm:h-64">
-          {wine.imageUrl ? (
+          {hasRenderableImage ? (
             <Image
-              src={wine.imageUrl}
+              src={wine.imageUrl!}
               alt={wine.name}
               fill
               sizes="(min-width: 768px) 40vw, 80vw"

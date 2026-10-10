@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BLOB_STORAGE_HOSTNAMES, buildBlobRemotePatterns } from "./blob-image-origins";
+import {
+  BLOB_STORAGE_HOSTNAMES,
+  buildBlobRemotePatterns,
+  isAllowedImageHost,
+} from "./blob-image-origins";
 
 const EXPECTED_HOSTNAMES = [
   "du7clicrjnwnwcsd.public.blob.vercel-storage.com",
@@ -57,5 +61,29 @@ describe("buildBlobRemotePatterns", () => {
     for (const pattern of patterns) {
       expect(pattern.hostname).not.toContain("*");
     }
+  });
+});
+
+describe("isAllowedImageHost — Gate ARCH-006-D review finding", () => {
+  it("accepts a URL on either approved Blob hostname", () => {
+    for (const hostname of EXPECTED_HOSTNAMES) {
+      expect(isAllowedImageHost(`https://${hostname}/products/x.jpg`)).toBe(true);
+    }
+  });
+
+  it("rejects a legacy/arbitrary external host", () => {
+    expect(isAllowedImageHost("https://evil.example.com/image.jpg")).toBe(false);
+  });
+
+  it("rejects a host that merely contains an approved hostname as a substring", () => {
+    expect(isAllowedImageHost(`https://evil-${EXPECTED_HOSTNAMES[0]}.attacker.test/x.jpg`)).toBe(
+      false,
+    );
+    expect(isAllowedImageHost(`https://${EXPECTED_HOSTNAMES[0]}.evil.test/x.jpg`)).toBe(false);
+  });
+
+  it("never throws on a malformed/non-URL string — treated as not allowed", () => {
+    expect(isAllowedImageHost("not a url at all")).toBe(false);
+    expect(isAllowedImageHost("")).toBe(false);
   });
 });
