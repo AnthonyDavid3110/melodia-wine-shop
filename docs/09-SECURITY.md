@@ -1969,15 +1969,17 @@ Before launch verify:
 
     [x] CSV formula injection handled — ABUSE-EXPORT-002
 
-    [x] File uploads: product image upload implemented and tested
-        (Phase 15 Gate ARCH-006-D, ABUSE-MISC-002) —
+    [x] File uploads: product AND bundle image upload implemented and
+        tested (Phase 15 Gates ARCH-006-D/E, ABUSE-MISC-002) —
         `requireAdmin()` first; size/signature/decoded-format/
         dimension validation via `sharp` (never `File.type`/
         `File.name`); JPEG/PNG/WebP only, SVG/GIF/AVIF rejected;
         full re-encode strips EXIF/metadata by default; controlled
         `kind/<uuid>.<ext>` storage paths, never a user filename.
-        Bundle image upload (Gate ARCH-006-E) is not yet
-        implemented — see `docs/05-ARCHITECTURE.md` TBD-ARCH-006
+        Bundle writes additionally re-verify campaign ownership
+        server-side (bundles are campaign-scoped; products are not).
+        Real Vercel Blob storage verification (Gate ARCH-006-F) is
+        still pending — see `docs/05-ARCHITECTURE.md` TBD-ARCH-006
         (still OPEN)
 
         **Gate ARCH-006-D final-review findings (fixed, not deferred)**:
@@ -1999,6 +2001,18 @@ Before launch verify:
         `removeProductImageAction` (or another concurrent edit) could
         otherwise have its change silently clobbered by a stale
         preserved value.
+
+        **Gate ARCH-006-E final-security-fix finding (fixed, not
+        deferred)**: `setBundleActiveAction`/`setBundleActive` accepted
+        `campaignId` only for cache-revalidation paths and never
+        checked it against the bundle's actual owning campaign — a
+        direct Server Action call with a mismatched `campaignId`/
+        `bundleId` pair could activate/deactivate a bundle belonging to
+        a different campaign ("hiding a button is not authorization").
+        Fixed with a single atomic `UPDATE ... WHERE id = ? AND
+        campaign_id = ?`; a mismatched campaign is reported identically
+        to a nonexistent bundle. Tested (`bundles/actions.test.ts`,
+        `bundles.db.test.ts`).
 
     [x] Security headers reviewed — Phase 14 Gate 14C, static CSP +
         X-Content-Type-Options/Referrer-Policy/Permissions-Policy/
@@ -2136,7 +2150,7 @@ surface exists in this application).
 | ABUSE-HDR-001 | Missing HTTP security headers / CSP | Every response carries CSP, frame protection, MIME protection, referrer policy, permissions policy | `next.config.ts` `headers()` (Gate 14C) | `security-headers.test.ts`, `e2e/security-headers.spec.ts` | VERIFIED |
 | ABUSE-XSS-001 | XSS via customer-supplied text (delivery note and other free-text fields) | Customer-supplied text is never rendered as trusted HTML/markup | Browser UI: React JSX's default text escaping (no `dangerouslySetInnerHTML`/raw-HTML sink exists anywhere in the codebase — re-confirmed by direct search during Gate 14E). Transactional HTML email: explicit `escapeHtml()` applied to every interpolated field, including the delivery note, before it reaches the HTML output. CSP (Gate 14C) is defense-in-depth on top of both, not the primary control. | Code audit (React's escaping is a framework guarantee, not independently re-tested here) + `escape-html.test.ts` (exhaustive unit coverage of the email-HTML escaping function) + `security-headers.test.ts`/`e2e/security-headers.spec.ts` for the CSP layer | VERIFIED — code audit |
 | ABUSE-MISC-001 | Open redirect via a user-controlled parameter | No redirect destination is ever derived from request input | `proxy.ts` sets a `from` query parameter on the login redirect, but the login flow never reads or consumes it — `login-form.tsx` always navigates to the fixed internal `/admin` destination on success; no `?returnUrl=`/`?next=`-style pattern exists anywhere in the codebase | Code audit (no dynamic redirect surface exists to exercise; a test asserting a nonexistent endpoint does not redirect externally would prove nothing) | NOT APPLICABLE — no attack surface exists in V1 |
-| ABUSE-MISC-002 | Image upload validation (malicious/malformed/oversized file, MIME spoofing, SVG/animated-image smuggling, path traversal via storage pathname) | `requireAdmin()` first; size checked before any byte read; `sharp`-decoded format (never `File.type`/`File.name`) restricted to JPEG/PNG/WebP; dimension cap; animated/multi-page rejected; full re-encode (strips EXIF/metadata, never upscales); controlled `kind/<uuid>.<ext>` pathname, independently re-validated by the storage boundary | `src/domain/products/validate-image-upload.ts`, `src/infrastructure/storage/upload-image.ts`'s `assertControlledPathname()` (Gate ARCH-006-B) | `validate-image-upload.test.ts` (valid JPEG/PNG/WebP, oversized, empty, garbage, corrupt-body, SVG, GIF, AVIF, excessive dimensions, MIME spoofing, EXIF stripping, animated rejection), `actions.test.ts` (unauthorized rejected before upload, forged `imageUrl` FormData field ignored, upload-before-DB-write ordering, upload/DB failure handling), `e2e/product-image-upload.spec.ts` | VERIFIED — product images only; bundle images (Gate ARCH-006-E) not yet implemented |
+| ABUSE-MISC-002 | Image upload validation (malicious/malformed/oversized file, MIME spoofing, SVG/animated-image smuggling, path traversal via storage pathname, cross-campaign bundle-image tampering) | `requireAdmin()` first; size checked before any byte read; `sharp`-decoded format (never `File.type`/`File.name`) restricted to JPEG/PNG/WebP; dimension cap; animated/multi-page rejected; full re-encode (strips EXIF/metadata, never upscales); controlled `kind/<uuid>.<ext>` pathname, independently re-validated by the storage boundary; bundle writes additionally re-verify `campaignId` ownership server-side, inside the same transaction as the write, never trusting a caller's own check | `src/domain/products/validate-image-upload.ts` (shared by both), `src/infrastructure/storage/upload-image.ts`'s `assertControlledPathname()` (Gate ARCH-006-B), `src/infrastructure/campaign/bundles.ts`'s `setBundleImage()` (Gate ARCH-006-E) | `validate-image-upload.test.ts` (valid JPEG/PNG/WebP, oversized, empty, garbage, corrupt-body, SVG, GIF, AVIF, excessive dimensions, MIME spoofing, EXIF stripping, animated rejection — shared by both features), `produits/actions.test.ts` + `bundles/actions.test.ts` (unauthorized rejected before upload, forged `imageUrl` FormData field ignored, upload-before-DB-write ordering, upload/DB failure handling, wrong-campaign rejection for bundles), `bundles.db.test.ts` (campaign-ownership mismatch rejected without writing), `e2e/product-image-upload.spec.ts` + `e2e/bundle-image-upload.spec.ts` | VERIFIED — product and bundle images both implemented; real Vercel Blob storage verification (Gate ARCH-006-F) still pending |
 | ABUSE-MISC-003 | Session expiration | — | — | Session validity is delegated entirely to Better Auth (`cookieCache` disabled, so every request re-validates against the database — see `resolveAdminFromAuthUserId`); this application adds no custom session-expiration logic of its own, so there is nothing application-specific to test beyond the already-verified `active`-flag re-validation (ABUSE-AUTH-003) | Library-internal behavior, not application code | NOT APPLICABLE — no custom application logic to verify |
 
 Gates 14B, 14C, and 14D's own test suites are referenced above as direct

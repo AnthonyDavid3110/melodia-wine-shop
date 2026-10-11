@@ -100,6 +100,8 @@ export default async function EditBundlePage({
         <BundleForm
           action={updateBundleAction.bind(null, campaignId, bundleId)}
           defaultValues={{
+            campaignId,
+            bundleId,
             name: bundle.name,
             shortDescription: bundle.shortDescription,
             description: bundle.description,

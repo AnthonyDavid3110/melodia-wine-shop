@@ -42,6 +42,23 @@ export interface BundleFieldsInput {
   imageUrl: string | null;
 }
 
+/**
+ * `updateBundleFields()`'s own input (Phase 15, Gate ARCH-006-E,
+ * mirrors `ProductUpdateInput` in `products.ts` exactly) — `imageUrl`
+ * is OPTIONAL here, and it is the KEY's presence that matters, not
+ * just its value. Omitting the key means the SQL `UPDATE`'s `SET`
+ * clause never mentions `image_url` at all, so this write cannot race
+ * a concurrent `setBundleImage()` call (the standalone remove action,
+ * or another concurrent edit) — there is nothing to clobber, because
+ * nothing is written. Pass `imageUrl: null` to explicitly clear it in
+ * the same write as other fields, or omit the key entirely to leave
+ * the stored value untouched — never pass `imageUrl: undefined` to
+ * mean "clear it".
+ */
+export type BundleUpdateInput = Omit<BundleFieldsInput, "imageUrl"> & {
+  imageUrl?: string | null;
+};
+
 export async function listCampaignBundles(campaignId: string, dbHandle: DbHandle = db) {
   return dbHandle
     .select()
@@ -116,13 +133,21 @@ export async function createBundle(
 
 export async function updateBundleFields(
   id: string,
-  input: BundleFieldsInput,
+  input: BundleUpdateInput,
   dbHandle: DbHandle = db,
 ) {
+  // Destructuring `imageUrl` out and only conditionally spreading it
+  // back is what actually keeps it out of the `SET` clause when
+  // omitted — a key that was never added to the object is a key
+  // Drizzle's `.set()` never sees, not a value needing special
+  // undefined-handling (same technique as `updateProduct()`).
+  const { imageUrl, ...rest } = input;
+  const values = imageUrl === undefined ? rest : { ...rest, imageUrl };
+
   try {
     const [bundle] = await dbHandle
       .update(bundles)
-      .set(input)
+      .set(values)
       .where(eq(bundles.id, id))
       .returning();
     if (!bundle) {
@@ -135,17 +160,75 @@ export async function updateBundleFields(
   }
 }
 
-/** The normal "hide/show" action — never a hard delete. */
-export async function setBundleActive(id: string, active: boolean, dbHandle: DbHandle = db) {
+/**
+ * The normal "hide/show" action — never a hard delete. Campaign
+ * ownership enforced directly in the `WHERE` clause (Gate ARCH-006-E
+ * final-security-fix): a confirmed pre-existing gap meant a direct
+ * Server Action call with a mismatched `campaignId`/`bundleId` pair
+ * could toggle a bundle belonging to a different campaign, the same
+ * "hiding a button is not authorization" issue already closed for
+ * `updateBundleAction`/`setBundleImage` during Gate ARCH-006-E. A
+ * single atomic `UPDATE ... WHERE id = ? AND campaign_id = ?` is
+ * simpler than `setBundleImage()`'s read-then-write-in-transaction
+ * shape — `active` has no intermediate business logic between an
+ * existence check and the write, so there is nothing a transaction
+ * would need to protect that the `WHERE` clause doesn't already. A
+ * mismatched campaign is reported identically to a nonexistent bundle
+ * (`BundleNotFoundError`), never distinguished.
+ */
+export async function setBundleActive(
+  id: string,
+  campaignId: string,
+  active: boolean,
+  dbHandle: DbHandle = db,
+) {
   const [bundle] = await dbHandle
     .update(bundles)
     .set({ active })
-    .where(eq(bundles.id, id))
+    .where(and(eq(bundles.id, id), eq(bundles.campaignId, campaignId)))
     .returning();
   if (!bundle) {
     throw new BundleNotFoundError(id);
   }
   return bundle;
+}
+
+/**
+ * Surgical single-column write (Phase 15, Gate ARCH-006-E — mirrors
+ * `setProductImage()` in `products.ts`), with one addition products
+ * don't need: bundles are campaign-scoped, so this independently
+ * re-verifies `campaignId` ownership inside the SAME transaction as
+ * the write — never trusting that a caller (e.g. a Server Action)
+ * already checked it, the same "hiding a button is not authorization"
+ * posture already applied everywhere else in this codebase. A
+ * mismatched campaign is reported identically to a nonexistent bundle
+ * (`BundleNotFoundError`), never distinguished, so this never confirms
+ * to a caller that a given bundle id exists under a different
+ * campaign. Never deletes the underlying Blob object — only ever
+ * changes the database reference.
+ */
+export async function setBundleImage(
+  bundleId: string,
+  campaignId: string,
+  imageUrl: string | null,
+  dbHandle: DbHandle = db,
+) {
+  return dbHandle.transaction(async (tx) => {
+    const [existing] = await tx.select().from(bundles).where(eq(bundles.id, bundleId));
+    if (!existing || existing.campaignId !== campaignId) {
+      throw new BundleNotFoundError(bundleId);
+    }
+
+    const [bundle] = await tx
+      .update(bundles)
+      .set({ imageUrl })
+      .where(eq(bundles.id, bundleId))
+      .returning();
+    if (!bundle) {
+      throw new BundleNotFoundError(bundleId);
+    }
+    return bundle;
+  });
 }
 
 export interface BundleCompositionItemInput {

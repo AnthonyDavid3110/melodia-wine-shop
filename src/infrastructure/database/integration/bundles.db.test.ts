@@ -12,6 +12,7 @@ import {
   listCampaignBundles,
   replaceBundleComposition,
   setBundleActive,
+  setBundleImage,
   updateBundleFields,
 } from "@/infrastructure/campaign/bundles";
 import { attachProductToCampaign } from "@/infrastructure/campaign/campaign-products";
@@ -100,7 +101,10 @@ describe("createBundle / updateBundleFields / setBundleActive", () => {
       withRollback((tx) => updateBundleFields(randomUUID(), bundleInput(), tx)),
     ).rejects.toBeInstanceOf(BundleNotFoundError);
     await expect(
-      withRollback((tx) => setBundleActive(randomUUID(), false, tx)),
+      withRollback(async (tx) => {
+        const { campaign } = await createBaseFixtures(tx);
+        return setBundleActive(randomUUID(), campaign.id, false, tx);
+      }),
     ).rejects.toBeInstanceOf(BundleNotFoundError);
   });
 
@@ -108,9 +112,179 @@ describe("createBundle / updateBundleFields / setBundleActive", () => {
     const bundle = await withRollback(async (tx) => {
       const { campaign } = await createBaseFixtures(tx);
       const created = await createBundle(campaign.id, bundleInput(), tx);
-      return setBundleActive(created!.id, false, tx);
+      return setBundleActive(created!.id, campaign.id, false, tx);
     });
     expect(bundle.active).toBe(false);
+  });
+
+  it("rejects setBundleActive when campaignId does not match the bundle's owner, without leaking that the bundle exists under a different campaign", async () => {
+    await withRollback(async (tx) => {
+      const { campaign } = await createBaseFixtures(tx);
+      const other = await createBaseFixtures(tx);
+      const created = await createBundle(campaign.id, bundleInput(), tx);
+
+      await expect(setBundleActive(created!.id, other.campaign.id, false, tx)).rejects.toThrow(
+        new BundleNotFoundError(created!.id).message,
+      );
+
+      const unchanged = await getBundle(created!.id, tx);
+      expect(unchanged?.active).toBe(true);
+    });
+  });
+
+  it("omitting imageUrl from the input leaves the stored value completely untouched — proves the SQL UPDATE never mentions that column (Gate ARCH-006-E)", async () => {
+    const updated = await withRollback(async (tx) => {
+      const { campaign } = await createBaseFixtures(tx);
+      const bundle = await createBundle(
+        campaign.id,
+        bundleInput({
+          imageUrl: "https://du7clicrjnwnwcsd.public.blob.vercel-storage.com/bundles/x.jpg",
+        }),
+        tx,
+      );
+
+      // Build an update input with every field EXCEPT imageUrl — not
+      // `imageUrl: undefined`, the key itself is absent.
+      const { imageUrl: _imageUrl, ...withoutImageUrl } = bundleInput({
+        name: "Updated name",
+        slug: bundle!.slug,
+      });
+      void _imageUrl;
+
+      return updateBundleFields(bundle!.id, withoutImageUrl, tx);
+    });
+
+    expect(updated?.name).toBe("Updated name");
+    expect(updated?.imageUrl).toBe(
+      "https://du7clicrjnwnwcsd.public.blob.vercel-storage.com/bundles/x.jpg",
+    );
+  });
+
+  it("a concurrent-style interleaving — setBundleImage() between read and updateBundleFields() — is never clobbered when imageUrl is omitted", async () => {
+    const updated = await withRollback(async (tx) => {
+      const { campaign } = await createBaseFixtures(tx);
+      const bundle = await createBundle(
+        campaign.id,
+        bundleInput({
+          imageUrl: "https://du7clicrjnwnwcsd.public.blob.vercel-storage.com/bundles/old.jpg",
+        }),
+        tx,
+      );
+
+      // Simulates another request's concurrent image removal landing
+      // BETWEEN this request reading the bundle and writing its own
+      // (unrelated field) update.
+      await setBundleImage(bundle!.id, campaign.id, null, tx);
+
+      const { imageUrl: _imageUrl, ...withoutImageUrl } = bundleInput({
+        name: "Renamed concurrently",
+        slug: bundle!.slug,
+      });
+      void _imageUrl;
+      return updateBundleFields(bundle!.id, withoutImageUrl, tx);
+    });
+
+    // The concurrent removal survives — this write never touched the
+    // column at all, so there was nothing to clobber it with.
+    expect(updated?.imageUrl).toBeNull();
+    expect(updated?.name).toBe("Renamed concurrently");
+  });
+});
+
+describe("setBundleImage (Phase 15, Gate ARCH-006-E)", () => {
+  it("sets imageUrl on the correct bundle, by id, and leaves every other column untouched", async () => {
+    await withRollback(async (tx) => {
+      const { campaign } = await createBaseFixtures(tx);
+      const other = await createBundle(
+        campaign.id,
+        bundleInput({ name: `Other-${unique("x")}` }),
+        tx,
+      );
+      const target = await createBundle(
+        campaign.id,
+        bundleInput({ name: `Target-${unique("x")}`, priceAmount: 5_000 }),
+        tx,
+      );
+
+      const updated = await setBundleImage(
+        target!.id,
+        campaign.id,
+        "https://du7clicrjnwnwcsd.public.blob.vercel-storage.com/bundles/x.jpg",
+        tx,
+      );
+
+      expect(updated.id).toBe(target!.id);
+      expect(updated.imageUrl).toBe(
+        "https://du7clicrjnwnwcsd.public.blob.vercel-storage.com/bundles/x.jpg",
+      );
+      // No unintended column updates — every other field is exactly
+      // what createBundle wrote, untouched by this call.
+      expect(updated.name).toBe(target!.name);
+      expect(updated.priceAmount).toBe(5_000);
+      expect(updated.active).toBe(target!.active);
+      expect(updated.slug).toBe(target!.slug);
+
+      // Correct ID filtering, checked within the SAME transaction (the
+      // other bundle still exists here — a separate withRollback call
+      // would have already discarded it, proving nothing): the OTHER
+      // bundle was never touched.
+      const unchangedOther = await getBundle(other!.id, tx);
+      expect(unchangedOther?.imageUrl).toBeNull();
+    });
+  });
+
+  it("nulls imageUrl (the removal path) without affecting other columns", async () => {
+    const updated = await withRollback(async (tx) => {
+      const { campaign } = await createBaseFixtures(tx);
+      const bundle = await createBundle(
+        campaign.id,
+        bundleInput({
+          imageUrl: "https://du7clicrjnwnwcsd.public.blob.vercel-storage.com/bundles/x.jpg",
+        }),
+        tx,
+      );
+      return setBundleImage(bundle!.id, campaign.id, null, tx);
+    });
+
+    expect(updated.imageUrl).toBeNull();
+  });
+
+  it("is idempotent — nulling an already-null imageUrl succeeds trivially", async () => {
+    const { first, second } = await withRollback(async (tx) => {
+      const { campaign } = await createBaseFixtures(tx);
+      const bundle = await createBundle(campaign.id, bundleInput({ imageUrl: null }), tx);
+      const first = await setBundleImage(bundle!.id, campaign.id, null, tx);
+      const second = await setBundleImage(bundle!.id, campaign.id, null, tx);
+      return { first, second };
+    });
+
+    expect(first.imageUrl).toBeNull();
+    expect(second.imageUrl).toBeNull();
+  });
+
+  it("throws BundleNotFoundError for a nonexistent id", async () => {
+    await withRollback(async (tx) => {
+      const { campaign } = await createBaseFixtures(tx);
+      await expect(setBundleImage(randomUUID(), campaign.id, null, tx)).rejects.toThrow(
+        BundleNotFoundError,
+      );
+    });
+  });
+
+  it("throws BundleNotFoundError (never leaking that the bundle exists) when the campaign does not match", async () => {
+    await withRollback(async (tx) => {
+      const { campaign } = await createBaseFixtures(tx);
+      const { campaign: otherCampaign } = await createBaseFixtures(tx);
+      const bundle = await createBundle(campaign.id, bundleInput(), tx);
+
+      await expect(
+        setBundleImage(bundle!.id, otherCampaign.id, "https://evil.example.com/x.jpg", tx),
+      ).rejects.toThrow(BundleNotFoundError);
+
+      // The mismatched call must not have written anything either.
+      const unchanged = await getBundle(bundle!.id, tx);
+      expect(unchanged?.imageUrl).toBeNull();
+    });
   });
 });
 

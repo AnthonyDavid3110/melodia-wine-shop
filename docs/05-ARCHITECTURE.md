@@ -2523,10 +2523,12 @@ not an architecture TBD.
 
 ## TBD-ARCH-006 — Image storage
 
-**Status: OPEN** (product images done, bundle images pending).
+**Status: OPEN** (product and bundle upload implemented; Gate
+ARCH-006-F real-Blob-storage verification still pending before this
+TBD can close).
 
 **Decision**: Vercel Blob, selected and implemented across Gates
-ARCH-006-A through ARCH-006-D:
+ARCH-006-A through ARCH-006-E:
 
 - **Gate ARCH-006-B**: `StorageProvider` boundary
   (`src/infrastructure/storage/`) — `uploadImage()`, controlled
@@ -2544,11 +2546,44 @@ ARCH-006-A through ARCH-006-D:
   decodability validation via `sharp`, full re-encode that strips
   metadata by default), wired into the product admin create/update
   Server Actions and a dedicated confirmed remove-image action. The
-  legacy manual image-URL admin field was removed.
+  legacy manual image-URL admin field was removed. A same-gate hotfix
+  also raised `next.config.ts`'s `experimental.serverActions.
+  bodySizeLimit` to `6mb` — Next's own 1 MB default was rejecting
+  every real upload, independent of this feature's 5 MiB policy.
+- **Gate ARCH-006-E**: bundle/discovery-box image upload implemented,
+  mirroring Gate D exactly — `BundleUpdateInput` (optional `imageUrl`,
+  omitted from the SQL `UPDATE` when unchanged, avoiding the TOCTOU gap
+  a fresh pre-write read would still leave), `setBundleImage()`
+  (surgical write, independently re-verifies campaign ownership inside
+  the same transaction — bundles are campaign-scoped, products are
+  not), wired into `createBundleAction`/`updateBundleAction` and a new
+  `removeBundleImageAction`. `updateBundleAction` also gained a
+  campaign-ownership check it was missing even for non-image fields
+  (a pre-existing gap, closed as part of doing this gate's own
+  "verify ownership before modifying" requirement correctly, not a
+  separate unrelated refactor). The legacy manual image-URL bundle
+  field was removed. `validate-image-upload.ts` and the
+  `resolveImageUpload()` orchestration helper remain deliberately
+  separate per product/bundle (approved Gate ARCH-006-E architectural
+  decision, not duplicated security logic — only the thin per-feature
+  wiring is repeated; validation, storage, and delivery are shared).
+- **Gate ARCH-006-E final security fix**: a pre-existing campaign-
+  ownership gap in `setBundleActiveAction`/`setBundleActive` was found
+  during final review and closed — `campaignId` was accepted only for
+  cache-revalidation paths and never checked against the bundle's
+  actual owning campaign, so a direct Server Action call with a
+  mismatched `campaignId`/`bundleId` pair could toggle a bundle
+  belonging to a different campaign. Fixed with a single atomic
+  `UPDATE ... WHERE id = ? AND campaign_id = ?` (simpler than
+  `setBundleImage()`'s transaction-wrapped check — a boolean toggle has
+  no intermediate business logic between the ownership check and the
+  write, so there is no TOCTOU window to protect against). A mismatched
+  campaign is reported identically to a nonexistent bundle, never
+  distinguished.
 
-**Remaining**: bundle/discovery-box image upload (Gate ARCH-006-E) —
-the same `StorageProvider`/validation modules apply, bundles are not
-yet wired to them. `TBD-ARCH-006` stays open until that gate closes.
+**Remaining**: Gate ARCH-006-F — verification against a real Vercel
+Blob store (the fake provider has never been used for anything beyond
+local/CI testing). `TBD-ARCH-006` stays open until that gate closes.
 
 ## TBD-ARCH-007 — PDF library — RESOLVED (Phase 12 Gate 12B)
 
