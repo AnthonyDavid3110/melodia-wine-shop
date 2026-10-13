@@ -2521,11 +2521,7 @@ dependency (TBD-PAY-001 in `08-PAYMENTS.md`), not an architecture TBD.
 verification (SPF/DKIM/DMARC) remains a Phase 15 deployment dependency,
 not an architecture TBD.
 
-## TBD-ARCH-006 — Image storage
-
-**Status: OPEN** (product and bundle upload implemented; Gate
-ARCH-006-F real-Blob-storage verification still pending before this
-TBD can close).
+## TBD-ARCH-006 — Image storage — RESOLVED for architecture (Phase 15, Gate ARCH-006-F)
 
 **Decision**: Vercel Blob, selected and implemented across Gates
 ARCH-006-A through ARCH-006-E:
@@ -2581,9 +2577,85 @@ ARCH-006-A through ARCH-006-E:
   campaign is reported identically to a nonexistent bundle, never
   distinguished.
 
-**Remaining**: Gate ARCH-006-F — verification against a real Vercel
-Blob store (the fake provider has never been used for anything beyond
-local/CI testing). `TBD-ARCH-006` stays open until that gate closes.
+**Gate ARCH-006-F — real Development Blob verification (resolves this TBD for architecture):**
+
+Conducted in three sub-gates, entirely against the Development Vercel
+Blob store (`melodia-wine-images-dev`, `du7clicrjnwnwcsd.public.blob.
+vercel-storage.com`) — never Production, never Neon:
+
+- **F1 (readiness audit, read-only)**: confirmed `StorageProvider`
+  boundary, `vercelBlobProvider`, pathname validation, and the
+  double-gated fake-test-provider seam were all correctly wired;
+  identified that `BLOB_READ_WRITE_TOKEN` was not yet present locally
+  and that the Vercel dashboard's "Needs Attention" warning could not
+  be diagnosed from local tooling alone (no Vercel CLI/project link).
+- **F2 (local environment setup)**: Development store credentials
+  (`BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`) added to `.env.local`,
+  confirmed mutually consistent and Development-scoped (never
+  Production), `E2E_FAKE_STORAGE_PROVIDER` confirmed never active
+  outside Playwright's own `webServer.env`, `.env.local` confirmed
+  gitignored.
+- **F2 (real upload, replacement, removal, admin + public rendering)**:
+  real end-to-end verification against the real Development Blob
+  store, run against the dev server with fake payment/email providers
+  (never real) but the real storage provider:
+  - Real product and bundle image uploads — correct `https://` URL,
+    exact Development hostname, correct `products/`/`bundles/`
+    pathname, persisted `imageUrl` matching exactly.
+  - Admin-side rendering (`<img>`) browser-verified in real Chromium —
+    `complete`, nonzero `naturalWidth` (genuine pixel decode, not an
+    HTTP-status-only check).
+  - Public-catalogue rendering browser-verified via a disposable,
+    isolated local PostgreSQL database (`melodia_test_f2`, migrated
+    from the committed schema, dropped afterward) with its own
+    disposable ACTIVE campaign — never touching `melodia_dev`'s real
+    `Les Vins de Mélodia 2026` campaign, which the one-active-campaign
+    invariant (`campaigns_one_active_idx`) would otherwise have put in
+    conflict with this verification. `next/image`'s real optimizer
+    endpoint was fetched directly (HTTP 200), its upstream `url=`
+    parameter confirmed to reference the real Development hostname,
+    and the rendered `<img>` browser-verified with a nonzero
+    `naturalWidth` — not a placeholder, not code inspection alone.
+  - Replacement: both product and bundle images replaced through the
+    real admin UI; the new URL persisted and rendered; the **old**
+    Blob object remained independently retrievable afterward (no
+    delete).
+  - Removal: both image associations cleared via the real confirmation
+    dialog; `imageUrl` became `NULL`; the removed Blob object remained
+    independently retrievable afterward (no delete) — this storage
+    module has no delete capability anywhere in its implementation.
+  - Zero CSP violations and zero Next.js image-optimizer errors
+    observed in the browser console throughout every step.
+  - All disposable database records (test campaigns, products,
+    bundles, admin/auth accounts) were removed with precisely-scoped
+    statements after verification; `melodia_dev`'s real campaign,
+    products, and bundle were confirmed byte-for-byte unchanged before
+    and after.
+
+**Accepted outcome — orphaned test Blob objects**: five test Blob
+objects created during this verification remain in the Development
+store, intentionally never deleted (this feature's own documented
+no-delete policy — Gate ARCH-006-A — applies equally to Claude Code's
+own verification activity, not only to application end users). They
+carry no customer data and cost nothing beyond negligible Development
+storage.
+
+**"Needs Attention" dashboard warning**: identified (by the project
+owner, via the Vercel dashboard) as a secret-handling warning, not a
+demonstrated storage failure. Not independently verified as resolved
+or removed from here — no claim is made either way beyond what was
+reported.
+
+**What this closes, and what it does not**: this resolves the
+architecture decision — Vercel Blob, as implemented, works correctly
+end-to-end against a real Blob store for both products and bundles,
+including delivery, replacement, and removal. It does **not** verify
+the **Production** Blob store (`wuzsx6hg7jjpz5pr.public.blob.vercel-
+storage.com`) — that remains a Phase 15 deployment dependency, the
+same pattern already applied to `TBD-ARCH-004` (payment) and
+`TBD-ARCH-005` (email), whose production credentials/domain
+verification were likewise carved out as deployment dependencies
+rather than architecture TBDs.
 
 ## TBD-ARCH-007 — PDF library — RESOLVED (Phase 12 Gate 12B)
 

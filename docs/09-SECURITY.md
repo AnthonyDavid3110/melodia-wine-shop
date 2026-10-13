@@ -914,8 +914,9 @@ Validate:
 
 Do not trust filename extension alone.
 
-**Implemented (Phase 15, Gate ARCH-006-D — product images; bundle
-images, Gate ARCH-006-E, pending)**: JPEG/PNG/WebP accepted; AVIF
+**Implemented (Phase 15, Gate ARCH-006-D — product images; Gate
+ARCH-006-E — bundle images; Gate ARCH-006-F — real Development Vercel
+Blob verification)**: JPEG/PNG/WebP accepted; AVIF
 decided **against** (the "possibly" above is now resolved: rejected,
 alongside SVG/GIF/animated images) —
 `src/domain/products/validate-image-upload.ts`. The decoded format
@@ -1234,6 +1235,19 @@ there is still no admin upload UI, no Server Action change, and
 `discovery-box.tsx` and the admin product/bundle forms were not
 modified, and a broken-but-present `imageUrl` still has no fallback
 (unchanged, tracked separately, not fixed by this gate).
+
+**Update (Phase 15, Gate ARCH-006-F — real Development Blob
+verification, `TBD-ARCH-006` now RESOLVED for architecture):** real
+uploads against the Development Vercel Blob store (`melodia-wine-
+images-dev`) were verified end-to-end for both products and bundles —
+correct hostname/pathname, database persistence, admin-side rendering,
+public `next/image` rendering (browser-verified real pixel decode, not
+code inspection alone), replacement, and removal — with zero CSP or
+Next.js image-optimizer errors throughout. Full evidence in
+`docs/05-ARCHITECTURE.md`'s `TBD-ARCH-006` entry. This closes the
+architecture decision; it does not itself verify the Production Blob
+store, which remains a Phase 15 deployment dependency (the same
+pattern already applied to `TBD-ARCH-004`/`TBD-ARCH-005`).
 
 ---
 
@@ -1978,9 +1992,10 @@ Before launch verify:
         `kind/<uuid>.<ext>` storage paths, never a user filename.
         Bundle writes additionally re-verify campaign ownership
         server-side (bundles are campaign-scoped; products are not).
-        Real Vercel Blob storage verification (Gate ARCH-006-F) is
-        still pending — see `docs/05-ARCHITECTURE.md` TBD-ARCH-006
-        (still OPEN)
+        Real Development Vercel Blob storage verification (Gate
+        ARCH-006-F) is complete — see `docs/05-ARCHITECTURE.md`
+        TBD-ARCH-006 (RESOLVED for architecture; Production Blob store
+        readiness remains a separate Phase 15 deployment dependency)
 
         **Gate ARCH-006-D final-review findings (fixed, not deferred)**:
         (1) `next/image` throws a hard render error — not a graceful
@@ -2150,7 +2165,7 @@ surface exists in this application).
 | ABUSE-HDR-001 | Missing HTTP security headers / CSP | Every response carries CSP, frame protection, MIME protection, referrer policy, permissions policy | `next.config.ts` `headers()` (Gate 14C) | `security-headers.test.ts`, `e2e/security-headers.spec.ts` | VERIFIED |
 | ABUSE-XSS-001 | XSS via customer-supplied text (delivery note and other free-text fields) | Customer-supplied text is never rendered as trusted HTML/markup | Browser UI: React JSX's default text escaping (no `dangerouslySetInnerHTML`/raw-HTML sink exists anywhere in the codebase — re-confirmed by direct search during Gate 14E). Transactional HTML email: explicit `escapeHtml()` applied to every interpolated field, including the delivery note, before it reaches the HTML output. CSP (Gate 14C) is defense-in-depth on top of both, not the primary control. | Code audit (React's escaping is a framework guarantee, not independently re-tested here) + `escape-html.test.ts` (exhaustive unit coverage of the email-HTML escaping function) + `security-headers.test.ts`/`e2e/security-headers.spec.ts` for the CSP layer | VERIFIED — code audit |
 | ABUSE-MISC-001 | Open redirect via a user-controlled parameter | No redirect destination is ever derived from request input | `proxy.ts` sets a `from` query parameter on the login redirect, but the login flow never reads or consumes it — `login-form.tsx` always navigates to the fixed internal `/admin` destination on success; no `?returnUrl=`/`?next=`-style pattern exists anywhere in the codebase | Code audit (no dynamic redirect surface exists to exercise; a test asserting a nonexistent endpoint does not redirect externally would prove nothing) | NOT APPLICABLE — no attack surface exists in V1 |
-| ABUSE-MISC-002 | Image upload validation (malicious/malformed/oversized file, MIME spoofing, SVG/animated-image smuggling, path traversal via storage pathname, cross-campaign bundle-image tampering) | `requireAdmin()` first; size checked before any byte read; `sharp`-decoded format (never `File.type`/`File.name`) restricted to JPEG/PNG/WebP; dimension cap; animated/multi-page rejected; full re-encode (strips EXIF/metadata, never upscales); controlled `kind/<uuid>.<ext>` pathname, independently re-validated by the storage boundary; bundle writes additionally re-verify `campaignId` ownership server-side, inside the same transaction as the write, never trusting a caller's own check | `src/domain/products/validate-image-upload.ts` (shared by both), `src/infrastructure/storage/upload-image.ts`'s `assertControlledPathname()` (Gate ARCH-006-B), `src/infrastructure/campaign/bundles.ts`'s `setBundleImage()` (Gate ARCH-006-E) | `validate-image-upload.test.ts` (valid JPEG/PNG/WebP, oversized, empty, garbage, corrupt-body, SVG, GIF, AVIF, excessive dimensions, MIME spoofing, EXIF stripping, animated rejection — shared by both features), `produits/actions.test.ts` + `bundles/actions.test.ts` (unauthorized rejected before upload, forged `imageUrl` FormData field ignored, upload-before-DB-write ordering, upload/DB failure handling, wrong-campaign rejection for bundles), `bundles.db.test.ts` (campaign-ownership mismatch rejected without writing), `e2e/product-image-upload.spec.ts` + `e2e/bundle-image-upload.spec.ts` | VERIFIED — product and bundle images both implemented; real Vercel Blob storage verification (Gate ARCH-006-F) still pending |
+| ABUSE-MISC-002 | Image upload validation (malicious/malformed/oversized file, MIME spoofing, SVG/animated-image smuggling, path traversal via storage pathname, cross-campaign bundle-image tampering) | `requireAdmin()` first; size checked before any byte read; `sharp`-decoded format (never `File.type`/`File.name`) restricted to JPEG/PNG/WebP; dimension cap; animated/multi-page rejected; full re-encode (strips EXIF/metadata, never upscales); controlled `kind/<uuid>.<ext>` pathname, independently re-validated by the storage boundary; bundle writes additionally re-verify `campaignId` ownership server-side, inside the same transaction as the write, never trusting a caller's own check | `src/domain/products/validate-image-upload.ts` (shared by both), `src/infrastructure/storage/upload-image.ts`'s `assertControlledPathname()` (Gate ARCH-006-B), `src/infrastructure/campaign/bundles.ts`'s `setBundleImage()` (Gate ARCH-006-E) | `validate-image-upload.test.ts` (valid JPEG/PNG/WebP, oversized, empty, garbage, corrupt-body, SVG, GIF, AVIF, excessive dimensions, MIME spoofing, EXIF stripping, animated rejection — shared by both features), `produits/actions.test.ts` + `bundles/actions.test.ts` (unauthorized rejected before upload, forged `imageUrl` FormData field ignored, upload-before-DB-write ordering, upload/DB failure handling, wrong-campaign rejection for bundles), `bundles.db.test.ts` (campaign-ownership mismatch rejected without writing), `e2e/product-image-upload.spec.ts` + `e2e/bundle-image-upload.spec.ts` | VERIFIED — product and bundle images both implemented; real Development Vercel Blob storage verification (Gate ARCH-006-F) complete; Production Blob store readiness remains a separate Phase 15 deployment dependency |
 | ABUSE-MISC-003 | Session expiration | — | — | Session validity is delegated entirely to Better Auth (`cookieCache` disabled, so every request re-validates against the database — see `resolveAdminFromAuthUserId`); this application adds no custom session-expiration logic of its own, so there is nothing application-specific to test beyond the already-verified `active`-flag re-validation (ABUSE-AUTH-003) | Library-internal behavior, not application code | NOT APPLICABLE — no custom application logic to verify |
 
 Gates 14B, 14C, and 14D's own test suites are referenced above as direct
@@ -2373,9 +2388,11 @@ server-side API + top-level-redirect Payment Page, never browser-called;
 fonts self-hosted via `next/font`; Better Auth same-origin only; no
 analytics/tracking). Static CSP + the four Vercel-doesn't-auto-set
 headers implemented and verified — see §50/§51 above for the adopted
-policy and its accepted static-vs-nonce limitation. `img-src` remains
-intentionally narrow pending TBD-ARCH-006 (image storage provider,
-still unresolved).
+policy and its accepted static-vs-nonce limitation. `img-src` was
+later widened (Phase 15, Gate ARCH-006-C) to the two approved Vercel
+Blob store origins once `TBD-ARCH-006` (image storage provider) was
+decided; that TBD is now RESOLVED for architecture (Gate ARCH-006-F)
+— see `docs/05-ARCHITECTURE.md`.
 
 ## TBD-SEC-005 — Data retention — RESOLVED (ECM business decision)
 
