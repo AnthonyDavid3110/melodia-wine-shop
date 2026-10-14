@@ -53,6 +53,7 @@ export default async function CheckoutPage() {
             catalog={catalog}
             sellerOptions={sellerOptions}
             onlinePaymentAvailable={isOnlinePaymentAvailable()}
+            demoMode={process.env.DEMO_MODE === "true"}
           />
         </div>
       </main>

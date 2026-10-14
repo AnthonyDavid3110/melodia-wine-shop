@@ -51,6 +51,19 @@ export type CheckoutActionResult =
  * §6/§7, BR-CART-002).
  */
 export async function submitCheckoutAction(payload: unknown): Promise<CheckoutActionResult> {
+  // Demo-showcase guard (never set in Production) — read directly from
+  // `process.env`, same precedent as the E2E_FAKE_* flags, not
+  // dignified in `serverEnv`'s Zod schema. Checked before any parsing
+  // or database access: a real server-side block, not merely a
+  // disabled button — a direct call to this action is blocked
+  // identically to a form submission.
+  if (process.env.DEMO_MODE === "true") {
+    return {
+      status: "cart-error",
+      message: "Version de démonstration — aucune commande ne peut être validée.",
+    };
+  }
+
   const parsed = orderCreationInputSchema.safeParse(payload);
   if (!parsed.success) {
     return { status: "validation-error", fieldErrors: parsed.error.flatten().fieldErrors };

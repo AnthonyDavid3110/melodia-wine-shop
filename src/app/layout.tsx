@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { fraunces, ibmPlexSans } from "@/lib/fonts";
 import { CartProvider } from "@/components/cart/cart-context";
+import { DemoBanner } from "@/components/demo-banner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${fraunces.variable} ${ibmPlexSans.variable} h-full antialiased`}
     >
       <body className="bg-background text-foreground flex min-h-full flex-col font-sans">
+        {process.env.DEMO_MODE === "true" ? <DemoBanner /> : null}
         <CartProvider>{children}</CartProvider>
       </body>
     </html>

@@ -39,11 +39,14 @@ export function CheckoutForm({
   catalog,
   sellerOptions,
   onlinePaymentAvailable,
+  demoMode,
 }: {
   catalog: Extract<PublicCatalog, { state: "active" }>;
   sellerOptions: { value: string; label: string }[];
   /** Phase 10 Gate 10B — online payment is offered only when the server has real Saferpay configuration (docs/10 §19). */
   onlinePaymentAvailable: boolean;
+  /** Demo-showcase mode (DEMO_MODE=true, never set in Production) — the real block is server-side in `submitCheckoutAction()`; this only disables the button and explains why, so a visitor isn't left guessing after a submit attempt. */
+  demoMode: boolean;
 }) {
   const { cart, hydrated, clearCart } = useCart();
   const idempotencyKeyRef = React.useRef<string>(crypto.randomUUID());
@@ -60,7 +63,7 @@ export function CheckoutForm({
   const availableLines = lines.filter((line) => line.available);
   const unavailableCount = lines.length - availableLines.length;
   const subtotal = cartSubtotal(lines);
-  const canSubmit = hydrated && availableLines.length > 0 && unavailableCount === 0;
+  const canSubmit = hydrated && availableLines.length > 0 && unavailableCount === 0 && !demoMode;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -379,6 +382,12 @@ export function CheckoutForm({
         </p>
       ) : null}
 
+      {demoMode ? (
+        <p role="status" className="text-foreground/60 text-body-sm font-sans">
+          Version de démonstration — aucune commande ne peut être validée.
+        </p>
+      ) : null}
+
       <BodySmall className="text-foreground/60">
         Les informations fournies sont utilisées pour traiter et livrer votre commande.{" "}
         <Link href="/confidentialite" className="underline-offset-2 hover:underline">
@@ -392,7 +401,11 @@ export function CheckoutForm({
           Modifier le panier
         </Link>
         <Button type="submit" size="lg" disabled={!canSubmit || submitting}>
-          {submitting ? "Envoi en cours…" : "Confirmer la commande"}
+          {submitting
+            ? "Envoi en cours…"
+            : demoMode
+              ? "Commande désactivée (démo)"
+              : "Confirmer la commande"}
         </Button>
       </div>
     </form>
