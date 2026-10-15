@@ -503,7 +503,17 @@ async function buildOnlinePaymentConfirmationEmailInput(
     return null;
   }
   const items = await dbHandle.select().from(orderItems).where(eq(orderItems.orderId, orderId));
-  return buildOrderConfirmationEmailInput(dbHandle, order, items, method);
+  // CORR-003: derived from the same productId/bundleId every order
+  // item already has, never a new query.
+  return buildOrderConfirmationEmailInput(
+    dbHandle,
+    order,
+    items.map((item) => ({
+      ...item,
+      itemType: item.productId ? ("PRODUCT" as const) : ("BUNDLE" as const),
+    })),
+    method,
+  );
 }
 
 type ApplySuccessTransactionResult =

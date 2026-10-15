@@ -336,7 +336,12 @@ export async function createOrder(
       const emailInput = await buildOrderConfirmationEmailInput(
         dbHandle,
         result.order,
-        result.items,
+        // CORR-003: derived from the same productId/bundleId every
+        // order item already has, never a new query.
+        result.items.map((item) => ({
+          ...item,
+          itemType: item.productId ? ("PRODUCT" as const) : ("BUNDLE" as const),
+        })),
         "SELLER",
       );
       await dispatchOrderConfirmationEmail(dbHandle, result.order.id, emailInput);

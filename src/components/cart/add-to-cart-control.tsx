@@ -22,11 +22,21 @@ export function AddToCartControl({
   id,
   label,
   tone = "default",
+  lotSize = 1,
 }: {
   type: CartItemType;
   id: string;
   label: string;
   tone?: "default" | "inverted";
+  /**
+   * CORR-003 — when greater than 1, the stepper manipulates whole lots
+   * (e.g. 1, 2, 3…) and multiplies by `lotSize` only at the point of
+   * adding to the cart; the cart itself never learns about lots, only
+   * a real bottle count (`WINE_LOT_SIZE` in `domain/cart/cart.ts`).
+   * `wine-row.tsx` passes `WINE_LOT_SIZE`; the Discovery Box keeps the
+   * default (one box at a time, unaffected by the lot rule).
+   */
+  lotSize?: number;
 }) {
   const { addItem } = useCart();
   const [quantity, setQuantity] = React.useState(1);
@@ -42,7 +52,7 @@ export function AddToCartControl({
   }, []);
 
   function handleAdd() {
-    addItem(type, id, quantity);
+    addItem(type, id, quantity * lotSize);
     setQuantity(1);
     setJustAdded(true);
     if (timeoutRef.current) {

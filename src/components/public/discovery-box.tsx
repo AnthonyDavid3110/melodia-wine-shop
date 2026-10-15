@@ -34,7 +34,7 @@ export function DiscoveryBoxSection({ bundles }: { bundles: PublicBundle[] }) {
             <div className="grid gap-10 md:grid-cols-2 md:items-center">
               <div>
                 <p className="text-primary-foreground/80 font-sans text-caption uppercase">
-                  Offre spéciale
+                  Notre offre phare
                 </p>
                 <Display as="h2" className="mt-3">
                   {bundle.name}

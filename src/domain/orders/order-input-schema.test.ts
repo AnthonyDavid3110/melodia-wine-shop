@@ -11,7 +11,7 @@ function validPayload(overrides: Partial<Record<string, unknown>> = {}) {
     customerEmail: "jean@example.ch",
     customerPhone: "079 000 00 00",
     deliveryNote: "",
-    items: [{ type: "PRODUCT", id: "wine-1", quantity: 2 }],
+    items: [{ type: "PRODUCT", id: "wine-1", quantity: 3 }],
     sellerId: null,
     idempotencyKey: "550e8400-e29b-41d4-a716-446655440000",
     ...overrides,
@@ -87,5 +87,33 @@ describe("orderCreationInputSchema", () => {
       validPayload({ items: [{ type: "GIFT_CARD", id: "x", quantity: 1 }] }),
     );
     expect(result.success).toBe(false);
+  });
+
+  // CORR-003 — wines are sold only in lots of 3 identical bottles.
+  it.each([1, 2, 4, 5, 7, 8])(
+    "rejects a PRODUCT line whose quantity isn't a multiple of 3: %p",
+    (quantity) => {
+      const result = orderCreationInputSchema.safeParse(
+        validPayload({ items: [{ type: "PRODUCT", id: "wine-1", quantity }] }),
+      );
+      expect(result.success).toBe(false);
+    },
+  );
+
+  it.each([3, 6, 9, 999])(
+    "accepts a PRODUCT line whose quantity is a multiple of 3: %p",
+    (quantity) => {
+      const result = orderCreationInputSchema.safeParse(
+        validPayload({ items: [{ type: "PRODUCT", id: "wine-1", quantity }] }),
+      );
+      expect(result.success).toBe(true);
+    },
+  );
+
+  it("never applies the lot-of-3 rule to a BUNDLE line (the Discovery Box is unaffected)", () => {
+    const result = orderCreationInputSchema.safeParse(
+      validPayload({ items: [{ type: "BUNDLE", id: "discovery-box", quantity: 1 }] }),
+    );
+    expect(result.success).toBe(true);
   });
 });

@@ -76,12 +76,17 @@ export default async function HomePage() {
       <CartCampaignSync campaignId={catalog.campaign.id} />
       <PublicHeader catalog={catalog} />
       <Hero campaign={catalog.campaign} />
+      {/* CORR-003 — the Discovery Box is now the storefront's flagship
+          offer, shown before the individual wines (previously the
+          reverse order). `DiscoveryBoxSection` already renders nothing
+          when no valid/active bundle exists (see its own guard), so
+          this reordering never needs a separate fallback here. */}
+      <DiscoveryBoxSection bundles={catalog.bundles} />
       {catalog.wines.length > 0 ? (
         <WineCollection wines={catalog.wines} />
       ) : (
         <EmptySelectionNotice />
       )}
-      <DiscoveryBoxSection bundles={catalog.bundles} />
       <DeliverySection />
       <EcmSection />
       <PublicFooter />

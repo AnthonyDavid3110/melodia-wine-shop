@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WINE_LOT_SIZE } from "../cart/cart";
 
 /**
  * Shared Zod validation for order creation (Phase 7) — the ONE schema
@@ -11,11 +12,25 @@ import { z } from "zod";
  * unresolved), just non-empty, reasonably bounded strings.
  */
 
-export const orderLineItemSchema = z.object({
-  type: z.enum(["PRODUCT", "BUNDLE"]),
-  id: z.string().min(1).max(200),
-  quantity: z.number().int().positive().max(999),
-});
+/**
+ * CORR-003 — wines (`PRODUCT`) are sold only in lots of `WINE_LOT_SIZE`
+ * identical bottles; the Discovery Box (`BUNDLE`) is unaffected. The
+ * `.refine()` runs after the base shape/positivity checks, so a
+ * PRODUCT line that's merely a non-multiple of 3 still gets this
+ * specific, actionable message rather than a generic one — reusing
+ * `WINE_LOT_SIZE`/the same rule `cart.ts`'s `isLotCompatibleQuantity`
+ * enforces client-side, never a second definition.
+ */
+export const orderLineItemSchema = z
+  .object({
+    type: z.enum(["PRODUCT", "BUNDLE"]),
+    id: z.string().min(1).max(200),
+    quantity: z.number().int().positive().max(999),
+  })
+  .refine((line) => line.type !== "PRODUCT" || line.quantity % WINE_LOT_SIZE === 0, {
+    message: "Les vins se commandent uniquement par lots de 3 bouteilles.",
+    path: ["quantity"],
+  });
 
 export const customerInfoSchema = z.object({
   customerFirstName: z.string().trim().min(1, "Le prénom est requis.").max(100),

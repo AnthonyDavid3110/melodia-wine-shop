@@ -20,9 +20,14 @@ function baseInput(
       totalAmount: 19600,
     },
     items: [
-      { nameSnapshot: "Chasselas", quantity: 2, lineTotalAmount: 3600 },
-      { nameSnapshot: "Pinot Noir", quantity: 3, lineTotalAmount: 6000 },
-      { nameSnapshot: "Carton découverte", quantity: 1, lineTotalAmount: 10000 },
+      { nameSnapshot: "Chasselas", quantity: 3, lineTotalAmount: 5400, itemType: "PRODUCT" },
+      { nameSnapshot: "Pinot Noir", quantity: 3, lineTotalAmount: 6000, itemType: "PRODUCT" },
+      {
+        nameSnapshot: "Carton découverte",
+        quantity: 1,
+        lineTotalAmount: 10000,
+        itemType: "BUNDLE",
+      },
     ],
     paymentMethod: "SELLER",
     sellerName: "Anthony David",
@@ -86,10 +91,10 @@ describe("buildOrderConfirmationEmail — SELLER PAYMENT variant", () => {
 });
 
 describe("buildOrderConfirmationEmail — content", () => {
-  it("lists every product with quantity and line total", () => {
+  it("lists every wine as a lot count (CORR-003) and every bundle as a plain quantity, each with its line total", () => {
     const content = buildOrderConfirmationEmail(baseInput());
-    expect(content.text).toContain("2 × Chasselas — CHF 36.–");
-    expect(content.text).toContain("3 × Pinot Noir — CHF 60.–");
+    expect(content.text).toContain("Chasselas — 1 lot de 3 bouteilles (3 bouteilles) — CHF 54.–");
+    expect(content.text).toContain("Pinot Noir — 1 lot de 3 bouteilles (3 bouteilles) — CHF 60.–");
     expect(content.text).toContain("1 × Carton découverte — CHF 100.–");
   });
 
@@ -108,7 +113,9 @@ describe("buildOrderConfirmationEmail — content", () => {
 
   it("formats an amount with rappen correctly", () => {
     const content = buildOrderConfirmationEmail(
-      baseInput({ items: [{ nameSnapshot: "Rosé", quantity: 1, lineTotalAmount: 1850 }] }),
+      baseInput({
+        items: [{ nameSnapshot: "Rosé", quantity: 3, lineTotalAmount: 1850, itemType: "PRODUCT" }],
+      }),
     );
     expect(content.text).toContain("CHF 18.50");
   });
@@ -212,7 +219,14 @@ describe("buildOrderConfirmationEmail — HTML escaping", () => {
   it("escapes a product name snapshot containing special characters", () => {
     const content = buildOrderConfirmationEmail(
       baseInput({
-        items: [{ nameSnapshot: 'Vin <rouge> & "spécial"', quantity: 1, lineTotalAmount: 1800 }],
+        items: [
+          {
+            nameSnapshot: 'Vin <rouge> & "spécial"',
+            quantity: 3,
+            lineTotalAmount: 1800,
+            itemType: "PRODUCT",
+          },
+        ],
       }),
     );
     expect(content.html).not.toContain("<rouge>");

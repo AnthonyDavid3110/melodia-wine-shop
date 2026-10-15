@@ -1,6 +1,7 @@
 import Image from "next/image";
-import { formatCHF } from "@/domain/money";
+import { formatCHF, multiplyMoney } from "@/domain/money";
 import { isAllowedImageHost } from "@/lib/blob-image-origins";
+import { WINE_LOT_SIZE } from "@/domain/cart/cart";
 import type { PublicWine } from "@/domain/catalog/public-catalog";
 import { Body, H3, Metadata } from "@/components/ui/typography";
 import { AddToCartControl } from "@/components/cart/add-to-cart-control";
@@ -82,9 +83,14 @@ export function WineRow({ wine, index }: { wine: PublicWine; index: number }) {
         {tastingText ? (
           <Body className="text-foreground/60 mt-2 max-w-sm text-sm italic">{tastingText}</Body>
         ) : null}
-        <p className="mt-4 font-sans text-xl font-semibold tabular-nums">{formatCHF(wine.price)}</p>
+        <p className="mt-4 font-sans text-xl font-semibold tabular-nums">
+          {formatCHF(multiplyMoney(wine.price, WINE_LOT_SIZE))}
+          <span className="text-foreground/60 ml-1.5 text-sm font-normal">
+            / lot de {WINE_LOT_SIZE} bouteilles
+          </span>
+        </p>
         <div className="mt-4">
-          <AddToCartControl type="PRODUCT" id={wine.id} label={wine.name} />
+          <AddToCartControl type="PRODUCT" id={wine.id} label={wine.name} lotSize={WINE_LOT_SIZE} />
         </div>
       </div>
     </div>

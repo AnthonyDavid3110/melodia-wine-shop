@@ -1,4 +1,5 @@
 import { formatCHF, money } from "@/domain/money";
+import { WINE_LOT_SIZE } from "@/domain/cart/cart";
 import { escapeHtml } from "./escape-html";
 
 /**
@@ -46,6 +47,8 @@ export interface OrderConfirmationEmailInput {
     quantity: number;
     /** Integer minor units — the persisted line total for this item. */
     lineTotalAmount: number;
+    /** CORR-003 — only a PRODUCT line is ever sold in lots of 3. */
+    itemType: "PRODUCT" | "BUNDLE";
   }>;
   /**
    * `TWINT`/`CARD` render the ONLINE_PAID variant; `SELLER` renders the
@@ -66,9 +69,24 @@ export interface OrderConfirmationEmailContent {
 }
 
 interface ConfirmationLine {
-  name: string;
-  quantity: number;
+  /** CORR-003 — fully pre-rendered ("2 lots de 3 bouteilles — Chasselas (6 bouteilles)" for a wine, "1 × Carton découverte" for a bundle), so `renderText`/`renderHtml` can never diverge on how a line reads. */
+  label: string;
   lineTotal: string;
+}
+
+function formatLineLabel(item: OrderConfirmationEmailInput["items"][number]): string {
+  if (item.itemType !== "PRODUCT") {
+    return `${item.quantity} × ${item.nameSnapshot}`;
+  }
+  const lots = item.quantity / WINE_LOT_SIZE;
+  if (!Number.isInteger(lots)) {
+    // Defensive only — every PRODUCT quantity reaching here was already
+    // validated as a multiple of WINE_LOT_SIZE (order-input-schema.ts,
+    // resolve-order-lines.ts); never silently misrepresent an
+    // impossible state as if it were a clean lot count.
+    return `${item.quantity} bouteilles — ${item.nameSnapshot}`;
+  }
+  return `${item.nameSnapshot} — ${lots} lot${lots > 1 ? "s" : ""} de ${WINE_LOT_SIZE} bouteilles (${item.quantity} bouteilles)`;
 }
 
 /**
@@ -125,8 +143,7 @@ function computeFields(input: OrderConfirmationEmailInput): ConfirmationFields {
     orderNumber: input.order.orderNumber,
     customerFullName: `${input.order.customerFirstName} ${input.order.customerLastName}`,
     lines: input.items.map((item) => ({
-      name: item.nameSnapshot,
-      quantity: item.quantity,
+      label: formatLineLabel(item),
       lineTotal: formatCHF(money(item.lineTotalAmount)),
     })),
     total,
@@ -150,9 +167,7 @@ function renderSubject(fields: ConfirmationFields): string {
 }
 
 function renderText(fields: ConfirmationFields): string {
-  const lines = fields.lines
-    .map((line) => `  ${line.quantity} × ${line.name} — ${line.lineTotal}`)
-    .join("\n");
+  const lines = fields.lines.map((line) => `  ${line.label} — ${line.lineTotal}`).join("\n");
 
   const noteBlock = fields.deliveryNote ? `\nRemarque : ${fields.deliveryNote}\n` : "";
 
@@ -195,7 +210,7 @@ function renderHtml(fields: ConfirmationFields): string {
     .map(
       (line) => `
       <tr>
-        <td style="padding:6px 0;border-bottom:1px solid #E7E2D6;">${escapeHtml(line.quantity + " × " + line.name)}</td>
+        <td style="padding:6px 0;border-bottom:1px solid #E7E2D6;">${escapeHtml(line.label)}</td>
         <td style="padding:6px 0;border-bottom:1px solid #E7E2D6;text-align:right;white-space:nowrap;">${escapeHtml(line.lineTotal)}</td>
       </tr>`,
     )
