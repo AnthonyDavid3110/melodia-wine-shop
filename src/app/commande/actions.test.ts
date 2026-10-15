@@ -51,7 +51,10 @@ function validPayload() {
     customerEmail: "anne@example.test",
     customerPhone: "+41791234567",
     deliveryNote: "",
-    items: [{ type: "PRODUCT" as const, id: "11111111-1111-1111-1111-111111111111", quantity: 1 }],
+    // CORR-003: wines are sold only in lots of 3 — quantity must be a
+    // multiple of 3, or the shared Zod schema rejects the payload
+    // before this test's DEMO_MODE guard is even what's being exercised.
+    items: [{ type: "PRODUCT" as const, id: "11111111-1111-1111-1111-111111111111", quantity: 3 }],
     campaignId: "22222222-2222-2222-2222-222222222222",
     sellerId: null,
     idempotencyKey: randomUUID(),
