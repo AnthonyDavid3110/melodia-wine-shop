@@ -5,7 +5,7 @@ import { db } from "@/infrastructure/database/client";
 import { sellers } from "@/infrastructure/database/schema";
 import { createOrder, orderExistsForIdempotencyKey } from "@/infrastructure/orders/create-order";
 import { initiateOnlinePayment } from "@/infrastructure/payments/online-payments";
-import { orderCreationInputSchema } from "@/domain/orders/order-input-schema";
+import { checkoutInputSchema } from "@/domain/orders/order-input-schema";
 import { formatSellerName } from "@/domain/sellers/format-seller-name";
 import { formatCHF, money } from "@/domain/money";
 import { getCurrentRateLimitIdentity } from "@/infrastructure/rate-limit/current-identity";
@@ -46,9 +46,10 @@ export type CheckoutActionResult =
  * `<form action>`) so it can accept the hydrated cart's structured
  * items — never a hidden-input JSON blob, never anything read from
  * `localStorage` server-side (the server has none). Every field here is
- * re-validated by `orderCreationInputSchema`; nothing the browser sends
- * is trusted beyond identities/quantities/text (docs/09-SECURITY.md
- * §6/§7, BR-CART-002).
+ * re-validated by `checkoutInputSchema` (CORR-004, built on the shared
+ * `orderCreationInputSchema`); nothing the browser sends is trusted
+ * beyond identities/quantities/text (docs/09-SECURITY.md §6/§7,
+ * BR-CART-002).
  */
 export async function submitCheckoutAction(payload: unknown): Promise<CheckoutActionResult> {
   // Demo-showcase guard (never set in Production) — read directly from
@@ -64,7 +65,10 @@ export async function submitCheckoutAction(payload: unknown): Promise<CheckoutAc
     };
   }
 
-  const parsed = orderCreationInputSchema.safeParse(payload);
+  // CORR-004: `checkoutInputSchema` — not the shared base schema — so a
+  // missing/incoherent `sellerDecision` is rejected the same way any
+  // other required field would be, never silently defaulted.
+  const parsed = checkoutInputSchema.safeParse(payload);
   if (!parsed.success) {
     return { status: "validation-error", fieldErrors: parsed.error.flatten().fieldErrors };
   }

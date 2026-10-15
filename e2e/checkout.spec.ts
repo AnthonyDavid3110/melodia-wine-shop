@@ -14,9 +14,17 @@ config({ path: ".env.local" });
 test.describe.configure({ mode: "serial" });
 
 const { db } = await import("../src/infrastructure/database/client");
-const { orders, orderItems, orderBundleComponents, payments, orderEvents } =
-  await import("../src/infrastructure/database/schema");
-const { inArray } = await import("drizzle-orm");
+const {
+  orders,
+  orderItems,
+  orderBundleComponents,
+  payments,
+  orderEvents,
+  sellers,
+  campaignSellers,
+  campaigns,
+} = await import("../src/infrastructure/database/schema");
+const { eq, inArray } = await import("drizzle-orm");
 
 function unique(label: string): string {
   return `${label}-${randomUUID().slice(0, 8)}`;
@@ -47,6 +55,27 @@ async function createAndLogInAsTestAdmin(page: import("@playwright/test").Page, 
   await expect(page).toHaveURL(/\/admin$/, { timeout: 15000 });
 }
 
+// CORR-004 — mirrors `seller-settlement.spec.ts`'s own
+// `addTestSellerToActiveCampaign()` pattern: a real seller row attached
+// to the live seeded ACTIVE campaign, so the public checkout's seller
+// combobox has a genuine option to pick, cleaned up in `afterAll`.
+const createdSellerIds: string[] = [];
+async function addTestSellerToActiveCampaign(): Promise<{ id: string; name: string }> {
+  const [campaign] = await db.select().from(campaigns).where(eq(campaigns.status, "ACTIVE"));
+  if (!campaign) throw new Error("requires a seeded ACTIVE campaign");
+  const lastName = unique("CheckoutSeller");
+  const [seller] = await db
+    .insert(sellers)
+    .values({ firstName: "Checkout E2E", lastName, active: true })
+    .returning();
+  if (!seller) throw new Error("fixture insert failed");
+  createdSellerIds.push(seller.id);
+  await db
+    .insert(campaignSellers)
+    .values({ campaignId: campaign.id, sellerId: seller.id, active: true });
+  return { id: seller.id, name: `Checkout E2E ${lastName}` };
+}
+
 test.afterAll(async () => {
   if (usedEmails.length > 0) {
     const matchingOrders = await db
@@ -70,6 +99,11 @@ test.afterAll(async () => {
       await db.delete(orderEvents).where(inArray(orderEvents.orderId, orderIds));
       await db.delete(orders).where(inArray(orders.id, orderIds));
     }
+  }
+
+  if (createdSellerIds.length > 0) {
+    await db.delete(campaignSellers).where(inArray(campaignSellers.sellerId, createdSellerIds));
+    await db.delete(sellers).where(inArray(sellers.id, createdSellerIds));
   }
 
   if (createdAdminEmails.length > 0) {
@@ -98,6 +132,15 @@ async function fillCustomerFields(page: import("@playwright/test").Page, email: 
   await page.fill("#customerCity", "Lausanne");
   await page.fill("#customerEmail", email);
   await page.fill("#customerPhone", "+41 79 000 00 00");
+  await chooseNoSeller(page);
+}
+
+// CORR-004: the seller decision is mandatory — explicitly choosing "no
+// seller" reproduces this suite's pre-existing unassigned-seller
+// behavior, never an implicit/untouched default.
+async function chooseNoSeller(page: import("@playwright/test").Page) {
+  await page.getByRole("combobox", { name: "Membre de Mélodia" }).click();
+  await page.getByRole("option", { name: "Je ne connais aucun membre de Mélodia" }).click();
 }
 
 test("realistic end-to-end flow: catalog, cart, checkout, confirmation, cart cleared, then found in admin", async ({
@@ -121,7 +164,6 @@ test("realistic end-to-end flow: catalog, cart, checkout, confirmation, cart cle
   await expect(page).toHaveURL(/\/commande$/);
 
   await fillCustomerFields(page, email);
-  // Continue without a seller (the default state — Combobox untouched).
   await page.getByRole("button", { name: "Confirmer la commande" }).click();
 
   await expect(page.getByText("COMMANDE CONFIRMÉE")).toBeVisible();
@@ -190,6 +232,7 @@ test("a validation failure preserves the cart and already-entered field values",
   await page.fill("#customerCity", "Lausanne");
   await page.fill("#customerEmail", "not-an-email");
   await page.fill("#customerPhone", "+41 79 000 00 00");
+  await chooseNoSeller(page);
   await page.getByRole("button", { name: "Confirmer la commande" }).click();
 
   // Still on the checkout page, not confirmed, field value preserved for correction.
@@ -234,4 +277,58 @@ test("rapid double-submit (double click) creates only ONE order — the idempote
     .from(orders)
     .where(inArray(orders.customerEmail, [email]));
   expect(matching).toHaveLength(1);
+});
+
+// CORR-004 — the submit button must stay disabled until the customer
+// makes an explicit seller decision (never an implicit "no seller" from
+// an untouched combobox).
+test("the submit button stays disabled until a seller decision is made", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#selection").getByRole("button", { name: "Ajouter" }).first().click();
+  await page.goto("/commande");
+  await page.fill("#customerFirstName", "Jean");
+  await page.fill("#customerLastName", "Testeur");
+  await page.fill("#customerAddress", "Rue Example 1");
+  await page.fill("#customerPostalCode", "1000");
+  await page.fill("#customerCity", "Lausanne");
+  await page.fill("#customerEmail", testEmail("checkout-undecided"));
+  await page.fill("#customerPhone", "+41 79 000 00 00");
+
+  await expect(page.getByRole("button", { name: "Confirmer la commande" })).toBeDisabled();
+  await expect(
+    page.getByText(
+      "Veuillez indiquer si vous connaissez un membre de Mélodia avant de poursuivre.",
+    ),
+  ).toBeVisible();
+
+  await chooseNoSeller(page);
+  await expect(page.getByRole("button", { name: "Confirmer la commande" })).toBeEnabled();
+});
+
+test("checkout with an explicitly selected seller succeeds — the order is correctly assigned", async ({
+  page,
+}) => {
+  const seller = await addTestSellerToActiveCampaign();
+  const email = testEmail("checkout-with-seller");
+
+  await page.goto("/");
+  await page.locator("#selection").getByRole("button", { name: "Ajouter" }).first().click();
+  await page.goto("/commande");
+  await page.fill("#customerFirstName", "Jean");
+  await page.fill("#customerLastName", "Testeur");
+  await page.fill("#customerAddress", "Rue Example 1");
+  await page.fill("#customerPostalCode", "1000");
+  await page.fill("#customerCity", "Lausanne");
+  await page.fill("#customerEmail", email);
+  await page.fill("#customerPhone", "+41 79 000 00 00");
+
+  await page.getByRole("combobox", { name: "Membre de Mélodia" }).click();
+  await page.getByRole("option", { name: seller.name }).click();
+  await expect(page.getByRole("button", { name: "Confirmer la commande" })).toBeEnabled();
+  await page.getByRole("button", { name: "Confirmer la commande" }).click();
+
+  await expect(page.getByText("COMMANDE CONFIRMÉE")).toBeVisible();
+
+  const [order] = await db.select().from(orders).where(eq(orders.customerEmail, email));
+  expect(order?.sellerId).toBe(seller.id);
 });

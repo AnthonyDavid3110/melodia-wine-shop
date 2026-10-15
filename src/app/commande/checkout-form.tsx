@@ -53,6 +53,16 @@ export function CheckoutForm({
   const fieldRefs = React.useRef<Partial<Record<string, HTMLInputElement>>>({});
 
   const [sellerId, setSellerId] = React.useState<string | null>(null);
+  // CORR-004 — distinct from `sellerId === null`, which is also the
+  // untouched initial state: "undecided" blocks submission entirely,
+  // never silently treated as an implicit "no seller". Set to "known"
+  // or "none" the moment the combobox fires `onChange` at all (picking
+  // a name, or explicitly picking its own "I don't know a member"
+  // entry) — see `handleSellerChange` below, the single place either
+  // state ever changes together.
+  const [sellerDecision, setSellerDecision] = React.useState<"undecided" | "known" | "none">(
+    "undecided",
+  );
   const [paymentMethod, setPaymentMethod] = React.useState<"SELLER" | "TWINT" | "CARD">("SELLER");
   const [submitting, setSubmitting] = React.useState(false);
   const [fieldErrors, setFieldErrors] = React.useState<Partial<Record<string, string[]>>>({});
@@ -68,12 +78,21 @@ export function CheckoutForm({
   // navigation here must be refused too, never only a disabled button
   // somewhere else.
   const hasIncompatibleLine = lines.some((line) => line.available && !line.lotCompatible);
+  // CORR-004: an explicit seller decision is required — the combobox's
+  // own untouched/"cleared" state and a genuine "no seller" choice must
+  // never be indistinguishable at submission time.
   const canSubmit =
     hydrated &&
     availableLines.length > 0 &&
     unavailableCount === 0 &&
     !hasIncompatibleLine &&
-    !demoMode;
+    !demoMode &&
+    sellerDecision !== "undecided";
+
+  function handleSellerChange(newSellerId: string | null) {
+    setSellerId(newSellerId);
+    setSellerDecision(newSellerId ? "known" : "none");
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,6 +115,11 @@ export function CheckoutForm({
       })),
       campaignId: cart.campaignId,
       sellerId,
+      // CORR-004: `canSubmit` (checked at the top of this function,
+      // which already returned if false) guarantees sellerDecision is
+      // never "undecided" here — the server independently re-verifies
+      // this exact same invariant regardless (checkoutInputSchema).
+      sellerDecision: sellerDecision === "known" ? "KNOWN" : "NONE",
       idempotencyKey: idempotencyKeyRef.current,
       paymentMethod,
     };
@@ -294,19 +318,27 @@ export function CheckoutForm({
           Membre de Mélodia
         </H2>
         <BodySmall className="text-foreground/70">
-          Un membre de l&rsquo;Ensemble de Cuivres Mélodia vous a-t-il proposé cette vente ?
+          Un membre de l&rsquo;Ensemble de Cuivres Mélodia vous a-t-il proposé cette vente ? Réponse
+          obligatoire.
         </BodySmall>
         <Combobox
           options={sellerOptions}
           value={sellerId}
-          onChange={setSellerId}
-          placeholder="Aucun membre sélectionné"
+          onChange={handleSellerChange}
+          placeholder="Choisissez une option…"
           searchPlaceholder="Rechercher un membre…"
           emptyText="Aucun membre trouvé."
-          clearLabel="Je ne connais pas de membre / aucun vendeur"
+          clearLabel="Je ne connais aucun membre de Mélodia"
           triggerAriaLabel="Membre de Mélodia"
           className="max-w-sm"
         />
+        {sellerDecision === "undecided" ? (
+          <BodySmall className="text-warning">
+            Veuillez indiquer si vous connaissez un membre de Mélodia avant de poursuivre.
+          </BodySmall>
+        ) : null}
+        <FieldError messages={fieldErrors.sellerId} />
+        <FieldError messages={fieldErrors.sellerDecision} />
       </section>
 
       <section aria-labelledby="checkout-note-heading" className="flex flex-col gap-3">

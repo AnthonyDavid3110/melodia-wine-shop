@@ -67,3 +67,42 @@ export const orderCreationInputSchema = customerInfoSchema.extend({
 });
 
 export type OrderCreationInput = z.infer<typeof orderCreationInputSchema>;
+
+/**
+ * CORR-004 — the public checkout specifically (never the admin manual
+ * order form, which stays on `orderCreationInputSchema` unchanged) must
+ * never accept an implicit "no seller" the same way an untouched,
+ * never-interacted-with field would produce. `sellerDecision` is
+ * **required** here — omitting it entirely (e.g. a direct call to
+ * `submitCheckoutAction` bypassing the UI) fails validation, exactly
+ * like any other missing required field. `KNOWN`/`NONE` must also agree
+ * with `sellerId` (never trusted independently, so a crafted payload
+ * can't claim `NONE` while still smuggling a `sellerId`, or vice
+ * versa) — the actual order-creation core keeps reading `sellerId`
+ * alone, `sellerDecision` exists only to prove a real choice was made.
+ */
+export const checkoutInputSchema = orderCreationInputSchema
+  .extend({
+    sellerDecision: z.enum(["KNOWN", "NONE"], {
+      message: "Veuillez indiquer si vous connaissez un membre de Mélodia.",
+    }),
+  })
+  .superRefine((data, ctx) => {
+    if (data.sellerDecision === "KNOWN" && data.sellerId === null) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Veuillez choisir un membre dans la liste, ou indiquer que vous n'en connaissez pas.",
+        path: ["sellerId"],
+      });
+    }
+    if (data.sellerDecision === "NONE" && data.sellerId !== null) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Sélection du membre incohérente. Veuillez réessayer.",
+        path: ["sellerId"],
+      });
+    }
+  });
+
+export type CheckoutInput = z.infer<typeof checkoutInputSchema>;
