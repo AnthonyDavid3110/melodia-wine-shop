@@ -47,6 +47,11 @@ async function fillCustomerInfo(page: import("@playwright/test").Page, email: st
   await page.fill("#customerCity", "Genève");
   await page.fill("#customerEmail", email);
   await page.fill("#customerPhone", "022 000 00 00");
+  // CORR-004: the seller decision is mandatory — explicitly choosing "no
+  // seller" here reproduces this suite's pre-existing unassigned-seller
+  // behavior, never an implicit/untouched default.
+  await page.getByRole("combobox", { name: "Membre de Mélodia" }).click();
+  await page.getByRole("option", { name: "Je ne connais aucun membre de Mélodia" }).click();
 }
 
 async function startCheckoutWithMethod(

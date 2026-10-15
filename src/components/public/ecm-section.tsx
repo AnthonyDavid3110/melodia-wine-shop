@@ -4,12 +4,13 @@ import { Body, Display } from "@/components/ui/typography";
  * ECM identity / trust context. Gate 2C rework from a centered
  * heading + two lines into an asymmetric two-column composition
  * (large typographic device left, factual copy right on desktop;
- * stacked on mobile) — reuses the exact wording already used in Phase
- * 1's approved exploration pages ("formation de catégorie Excellence")
- * plus only the "in support of ECM" fundraising framing explicitly
- * approved for Phase 4. Does not claim what the money specifically
- * finances, and adds no invented detail beyond what was already
- * approved copy.
+ * stacked on mobile). History paragraph updated (CORR-004) to the
+ * committee-provided founding narrative (1960, La Côte Vaudoise,
+ * Brass Band transition in the 1970s), replacing the earlier
+ * "catégorie Excellence" copy. The second paragraph's "in support of
+ * ECM" fundraising framing is unchanged. Does not claim what the
+ * money specifically finances, and adds no invented detail beyond
+ * what was supplied.
  */
 export function EcmSection() {
   return (
@@ -20,8 +21,9 @@ export function EcmSection() {
         </Display>
         <div>
           <Body className="text-foreground/75 max-w-md">
-            L&apos;Ensemble de Cuivres Mélodia est une formation de cuivres suisse, membre de la
-            catégorie Excellence.
+            L&rsquo;Ensemble de Cuivres Mélodia a été créé en 1960 par un groupe d&rsquo;amis de
+            La Côte Vaudoise, pratiquant tous un instrument de cuivre. Dans les années 70, Mélodia
+            se transforme et devient un Brass Band ou Ensemble de Cuivres.
           </Body>
           <Body className="text-foreground/75 mt-3 max-w-md">
             Cette vente de vins est organisée au profit de l&apos;ensemble.

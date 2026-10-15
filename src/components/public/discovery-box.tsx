@@ -39,11 +39,12 @@ export function DiscoveryBoxSection({ bundles }: { bundles: PublicBundle[] }) {
                 <Display as="h2" className="mt-3">
                   {bundle.name}
                 </Display>
-                {bundle.shortDescription || bundle.description ? (
-                  <p className="text-primary-foreground/85 mt-3 max-w-sm font-sans text-sm">
-                    {bundle.shortDescription ?? bundle.description}
-                  </p>
-                ) : null}
+                {/* CORR-004: the stored short/long description ("Une
+                    bouteille de chaque") is deliberately not rendered
+                    here — redundant with the composition list right
+                    below, which already shows each wine and its
+                    quantity. The underlying database value is
+                    untouched; this is a display-only omission. */}
 
                 {bundle.items.length > 0 ? (
                   <ul className="border-primary-foreground/30 mt-6 max-w-sm border-t">

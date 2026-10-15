@@ -37,7 +37,7 @@ export function PublicFooter() {
             Confidentialité &amp; mentions légales
           </Link>
           <MetadataText className="text-muted-foreground/60">
-            Développé avec bien trop de café par{" "}
+            Développé par{" "}
             <a href="mailto:info@anthonydavid.ch" className="underline-offset-2 hover:underline">
               Anthony David
             </a>
