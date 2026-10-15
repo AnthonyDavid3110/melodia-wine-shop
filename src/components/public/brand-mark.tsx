@@ -1,7 +1,8 @@
 /**
- * The public wordmark — "LES VINS DE / Mélodia". Shared by the header
- * and footer (Phase 15 footer refinement) so the one real brand
- * treatment lives in a single place rather than being retyped.
+ * The public text wordmark — "LES VINS DE / Mélodia". Used in the
+ * footer. The header uses the image `BrandLogo` instead (see
+ * `brand-logo.tsx`); this component is kept for the footer's own
+ * treatment, not retyped there.
  */
 export function BrandMark() {
   return (
