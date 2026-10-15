@@ -10,7 +10,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Body, BodySmall, FieldLabel, H2, H3, Price } from "@/components/ui/typography";
 import { useCart } from "@/components/cart/cart-context";
-import { cartSubtotal, resolveCartAgainstCatalog } from "@/domain/cart/cart";
+import { cartSubtotal, resolveCartAgainstCatalog, WINE_LOT_SIZE } from "@/domain/cart/cart";
 import { formatCHF } from "@/domain/money";
 import type { PublicCatalog } from "@/domain/catalog/public-catalog";
 import { submitCheckoutAction, type CheckoutConfirmation } from "./actions";
@@ -60,7 +60,13 @@ export function CheckoutForm({
   const availableLines = lines.filter((line) => line.available);
   const unavailableCount = lines.length - availableLines.length;
   const subtotal = cartSubtotal(lines);
-  const canSubmit = hydrated && availableLines.length > 0 && unavailableCount === 0;
+  // CORR-003: defense in depth — the cart page already blocks the link
+  // to /commande when a line is lot-incompatible, but a direct
+  // navigation here must be refused too, never only a disabled button
+  // somewhere else.
+  const hasIncompatibleLine = lines.some((line) => line.available && !line.lotCompatible);
+  const canSubmit =
+    hydrated && availableLines.length > 0 && unavailableCount === 0 && !hasIncompatibleLine;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -353,25 +359,42 @@ export function CheckoutForm({
           Récapitulatif
         </H2>
         <ul>
-          {availableLines.map((line) => (
-            <li
-              key={`${line.item.type}:${line.item.id}`}
-              className="border-border flex items-center justify-between border-b py-3 last:border-b-0"
-            >
-              <div>
-                <Body className="font-medium">
-                  {line.item.quantity} × {line.name}
-                </Body>
-              </div>
-              <Price>{formatCHF(line.lineTotal!)}</Price>
-            </li>
-          ))}
+          {availableLines.map((line) => {
+            const isWine = line.item.type === "PRODUCT";
+            return (
+              <li
+                key={`${line.item.type}:${line.item.id}`}
+                className="border-border flex items-center justify-between border-b py-3 last:border-b-0"
+              >
+                <div>
+                  <Body className="font-medium">
+                    {isWine && line.lotCompatible
+                      ? `${line.item.quantity / WINE_LOT_SIZE} lot${line.item.quantity / WINE_LOT_SIZE > 1 ? "s" : ""} × ${line.name} (${line.item.quantity} bouteilles)`
+                      : isWine
+                        ? `${line.name} — quantité invalide (${line.item.quantity} bouteilles)`
+                        : `${line.item.quantity} × ${line.name}`}
+                  </Body>
+                </div>
+                <Price>{formatCHF(line.lineTotal!)}</Price>
+              </li>
+            );
+          })}
         </ul>
         <div className="border-border flex items-center justify-between border-t pt-4">
           <H3 className="text-lg">Total</H3>
           <Price className="text-lg">{formatCHF(subtotal)}</Price>
         </div>
       </section>
+
+      {hasIncompatibleLine ? (
+        <p role="alert" className="text-warning text-body-sm font-sans">
+          Votre panier contient un vin dont la quantité n&rsquo;est plus un lot valide.{" "}
+          <Link href="/panier" className="underline-offset-2 hover:underline">
+            Retournez au panier
+          </Link>{" "}
+          pour choisir un nombre de lots.
+        </p>
+      ) : null}
 
       {cartError ? (
         <p role="alert" className="text-danger text-body-sm font-sans">

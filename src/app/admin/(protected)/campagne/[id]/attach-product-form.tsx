@@ -48,8 +48,11 @@ export function AttachProductForm({
         <input type="hidden" name="productId" value={productId ?? ""} />
       </div>
       <div className="flex w-32 flex-col gap-1.5">
-        <Label htmlFor="attach-product-price">Prix (CHF)</Label>
+        <Label htmlFor="attach-product-price">Prix par bouteille (CHF)</Label>
         <Input id="attach-product-price" name="price" placeholder="18.00" />
+        <p className="text-muted-foreground text-xs">
+          Le prix du lot de 3 (vente publique) est calculé automatiquement.
+        </p>
       </div>
       <SubmitButton label="Ajouter à la campagne" pendingLabel="Ajout…" />
     </form>

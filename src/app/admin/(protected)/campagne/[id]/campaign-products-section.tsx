@@ -58,7 +58,12 @@ export async function CampaignProductsSection({ campaignId }: { campaignId: stri
               <tr className="border-border bg-surface-muted border-b text-left">
                 <th className="px-3 py-2 font-medium">Vin</th>
                 <th className="px-3 py-2 font-medium">Actif au catalogue</th>
-                <th className="px-3 py-2 font-medium">Prix (CHF)</th>
+                <th className="px-3 py-2 font-medium">
+                  Prix par bouteille (CHF)
+                  <span className="text-muted-foreground block text-xs font-normal">
+                    Lot de 3 calculé automatiquement
+                  </span>
+                </th>
                 <th className="px-3 py-2 font-medium">Cette campagne</th>
                 <th className="px-3 py-2 font-medium">Publiquement visible</th>
                 <th className="px-3 py-2 font-medium">Ordre</th>

@@ -1,4 +1,5 @@
 import { type Money, multiplyMoney } from "../money";
+import { isLotCompatibleQuantity } from "../cart/cart";
 import type { PublicCatalog } from "../catalog/public-catalog";
 
 /**
@@ -41,8 +42,25 @@ export type ResolveOrderLinesResult =
   | { ok: false; reason: "no-active-campaign" }
   | { ok: false; reason: "unavailable-items"; unavailable: OrderLineRequest[] };
 
-function isValidQuantity(quantity: number): boolean {
-  return Number.isInteger(quantity) && quantity > 0 && quantity <= 999;
+/**
+ * CORR-003 — defense in depth: `orderCreationInputSchema`'s Zod
+ * `.refine()` already rejects a non-lot PRODUCT quantity before this
+ * ever runs, but this is the authoritative resolution against the live
+ * catalogue that `createOrder()` actually trusts, so the same rule is
+ * re-checked here too, never relying solely on the earlier shape
+ * validation. A violation joins the ordinary `unavailable-items`
+ * rejection — reachable only by bypassing the UI/schema entirely, so a
+ * generic "some items are no longer available" message is enough; the
+ * specific, actionable lot message is what a normal customer actually
+ * sees, from the schema layer.
+ */
+function isValidQuantity(type: OrderLineRequest["type"], quantity: number): boolean {
+  return (
+    Number.isInteger(quantity) &&
+    quantity > 0 &&
+    quantity <= 999 &&
+    isLotCompatibleQuantity(type, quantity)
+  );
 }
 
 export function resolveOrderLines(
@@ -63,7 +81,7 @@ export function resolveOrderLines(
   const unavailable: OrderLineRequest[] = [];
 
   for (const item of items) {
-    if (!isValidQuantity(item.quantity)) {
+    if (!isValidQuantity(item.type, item.quantity)) {
       unavailable.push(item);
       continue;
     }

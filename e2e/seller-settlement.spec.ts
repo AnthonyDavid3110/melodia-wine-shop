@@ -178,8 +178,11 @@ test("realistic end-to-end flow: mark payment received, create a settlement, ver
   await expect(page.locator("dd").filter({ hasText: "En attente" })).toBeVisible();
 
   // Seller detail: verify pre-settlement financial figures.
+  // CORR-003: `createManualOrder` clicks the first wine's "Augmenter la
+  // quantité" once, which now adds one full lot (3 bottles) rather
+  // than a single bottle — CHF 18.–/bottle × 3 = CHF 54.–.
   await page.goto(`/admin/vendeurs/${seller.id}`, { waitUntil: "networkidle" });
-  await expect(page.getByText("CHF 18.–", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("CHF 54.–", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("À remettre à Mélodia")).toBeVisible();
 
   // Create the settlement.

@@ -6,11 +6,13 @@ import {
   cartItemCount,
   cartSubtotal,
   createEmptyCart,
+  isLotCompatibleQuantity,
   purchasableCartCount,
   reconcileCartCampaign,
   removeFromCart,
   resolveCartAgainstCatalog,
   setQuantity,
+  WINE_LOT_SIZE,
 } from "./cart";
 
 const CAMPAIGN_ID = "campaign-1";
@@ -192,6 +194,45 @@ describe("resolveCartAgainstCatalog", () => {
     const cart = addToCart(createEmptyCart(CAMPAIGN_ID), "PRODUCT", OTHER_WINE_ID, 1);
     const [line] = resolveCartAgainstCatalog(cart, activeCatalog());
     expect(line?.available).toBe(false);
+  });
+
+  // CORR-003 — wines are sold only in lots of 3 identical bottles.
+  it("marks an available PRODUCT line lot-compatible when quantity is a multiple of 3", () => {
+    const cart = addToCart(createEmptyCart(CAMPAIGN_ID), "PRODUCT", WINE_ID, 6);
+    const [line] = resolveCartAgainstCatalog(cart, activeCatalog());
+    expect(line).toMatchObject({ available: true, lotCompatible: true });
+  });
+
+  it("marks an available PRODUCT line lot-INcompatible when quantity predates the lot rule (e.g. an old stored cart)", () => {
+    const cart = addToCart(createEmptyCart(CAMPAIGN_ID), "PRODUCT", WINE_ID, 4);
+    const [line] = resolveCartAgainstCatalog(cart, activeCatalog());
+    expect(line).toMatchObject({ available: true, lotCompatible: false });
+  });
+
+  it("never applies the lot rule to a BUNDLE line, whatever its quantity", () => {
+    const cart = addToCart(createEmptyCart(CAMPAIGN_ID), "BUNDLE", BUNDLE_ID, 5);
+    const [line] = resolveCartAgainstCatalog(cart, activeCatalog());
+    expect(line).toMatchObject({ available: true, lotCompatible: true });
+  });
+});
+
+describe("isLotCompatibleQuantity", () => {
+  it.each([3, 6, 9, WINE_LOT_SIZE * 10])(
+    "accepts a PRODUCT quantity that is a multiple of %i",
+    (quantity) => {
+      expect(isLotCompatibleQuantity("PRODUCT", quantity)).toBe(true);
+    },
+  );
+
+  it.each([1, 2, 4, 5, 7, 8])(
+    "rejects a PRODUCT quantity that is not a multiple of 3: %p",
+    (quantity) => {
+      expect(isLotCompatibleQuantity("PRODUCT", quantity)).toBe(false);
+    },
+  );
+
+  it.each([1, 2, 3, 4, 5])("always accepts any BUNDLE quantity: %p", (quantity) => {
+    expect(isLotCompatibleQuantity("BUNDLE", quantity)).toBe(true);
   });
 });
 

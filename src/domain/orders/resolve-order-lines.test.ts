@@ -108,15 +108,15 @@ describe("resolveOrderLines", () => {
   it("rejects the whole submission when any single line is unavailable — never a partial order", () => {
     const result = resolveOrderLines(
       [
-        { type: "PRODUCT", id: WINE_ID, quantity: 1 },
-        { type: "PRODUCT", id: "removed-product", quantity: 1 },
+        { type: "PRODUCT", id: WINE_ID, quantity: 3 },
+        { type: "PRODUCT", id: "removed-product", quantity: 3 },
       ],
       activeCatalog(),
     );
     expect(result).toEqual({
       ok: false,
       reason: "unavailable-items",
-      unavailable: [{ type: "PRODUCT", id: "removed-product", quantity: 1 }],
+      unavailable: [{ type: "PRODUCT", id: "removed-product", quantity: 3 }],
     });
   });
 
@@ -130,7 +130,7 @@ describe("resolveOrderLines", () => {
 
   it("rejects a non-catalog product id even if syntactically well-formed", () => {
     const result = resolveOrderLines(
-      [{ type: "PRODUCT", id: OTHER_WINE_ID, quantity: 1 }],
+      [{ type: "PRODUCT", id: OTHER_WINE_ID, quantity: 3 }],
       activeCatalog(),
     );
     expect(result).toMatchObject({ ok: false, reason: "unavailable-items" });
@@ -142,8 +142,29 @@ describe("resolveOrderLines", () => {
   });
 
   it("never trusts a browser-submitted price — the request shape has no price field to even smuggle one in", () => {
-    const maliciousRequest = { type: "PRODUCT", id: WINE_ID, quantity: 1, unitPrice: 1 } as never;
+    const maliciousRequest = { type: "PRODUCT", id: WINE_ID, quantity: 3, unitPrice: 1 } as never;
     const result = resolveOrderLines([maliciousRequest], activeCatalog());
     expect(result).toMatchObject({ ok: true, lines: [{ unitPrice: 1_800 }] });
+  });
+
+  // CORR-003 — defense in depth: the authoritative resolution re-checks
+  // the lot rule itself, never relying solely on the earlier Zod schema.
+  it.each([1, 2, 4, 5])(
+    "rejects a PRODUCT quantity that isn't a multiple of 3, even past the schema: %p",
+    (quantity) => {
+      const result = resolveOrderLines(
+        [{ type: "PRODUCT", id: WINE_ID, quantity }],
+        activeCatalog(),
+      );
+      expect(result).toMatchObject({ ok: false, reason: "unavailable-items" });
+    },
+  );
+
+  it("never applies the lot-of-3 rule to a BUNDLE quantity", () => {
+    const result = resolveOrderLines(
+      [{ type: "BUNDLE", id: BUNDLE_ID, quantity: 1 }],
+      activeCatalog(),
+    );
+    expect(result).toMatchObject({ ok: true });
   });
 });

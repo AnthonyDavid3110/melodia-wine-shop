@@ -76,6 +76,8 @@ export interface PersistedOrderItemForConfirmation {
   nameSnapshot: string;
   quantity: number;
   lineTotalAmount: number;
+  /** CORR-003 — only a PRODUCT line is ever sold in lots of 3; a BUNDLE line keeps its existing "× name" rendering. */
+  itemType: "PRODUCT" | "BUNDLE";
 }
 
 /**
@@ -119,6 +121,7 @@ export async function buildOrderConfirmationEmailInput(
       nameSnapshot: item.nameSnapshot,
       quantity: item.quantity,
       lineTotalAmount: item.lineTotalAmount,
+      itemType: item.itemType,
     })),
     paymentMethod,
     sellerName,

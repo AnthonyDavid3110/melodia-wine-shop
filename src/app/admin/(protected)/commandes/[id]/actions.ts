@@ -314,7 +314,14 @@ export async function resendOrderConfirmationAction(
     db,
     orderId,
     detail.order,
-    detail.items,
+    // CORR-003: `resendOrderConfirmation` needs to know which lines are
+    // wines (sold in lots of 3) vs. the Discovery Box — derived here
+    // from the same productId/bundleId every order item already has,
+    // never a new query.
+    detail.items.map((item) => ({
+      ...item,
+      itemType: item.productId ? ("PRODUCT" as const) : ("BUNDLE" as const),
+    })),
     detail.payments,
     admin.adminId,
   );

@@ -11,10 +11,11 @@ import { Body, H3, Price } from "@/components/ui/typography";
 import {
   cartSubtotal,
   resolveCartAgainstCatalog,
+  WINE_LOT_SIZE,
   type Cart,
   type CartItemType,
 } from "@/domain/cart/cart";
-import { formatCHF } from "@/domain/money";
+import { formatCHF, multiplyMoney } from "@/domain/money";
 import type { PublicCatalog } from "@/domain/catalog/public-catalog";
 import { createManualOrderAction } from "./actions";
 
@@ -143,25 +144,38 @@ export function ManualOrderForm({
       <section className="flex flex-col gap-4">
         <H3 className="text-lg">Produits</H3>
         <ul className="flex flex-col gap-3">
-          {catalog.wines.map((wine) => (
-            <li key={wine.id} className="flex items-center justify-between gap-4">
-              <Body>{wine.name}</Body>
-              <div className="flex items-center gap-4">
-                <span className="text-muted-foreground text-body-sm font-sans tabular-nums">
-                  {formatCHF(wine.price)}
-                </span>
-                <QuantitySelector
-                  label={wine.name}
-                  value={quantities[key("PRODUCT", wine.id)] ?? 0}
-                  onChange={(value) =>
-                    setQuantities((current) => ({ ...current, [key("PRODUCT", wine.id)]: value }))
-                  }
-                  min={0}
-                  max={999}
-                />
-              </div>
-            </li>
-          ))}
+          {catalog.wines.map((wine) => {
+            const bottles = quantities[key("PRODUCT", wine.id)] ?? 0;
+            return (
+              <li key={wine.id} className="flex items-center justify-between gap-4">
+                <Body>{wine.name}</Body>
+                <div className="flex items-center gap-4">
+                  <span className="text-muted-foreground text-body-sm font-sans tabular-nums">
+                    {formatCHF(multiplyMoney(wine.price, WINE_LOT_SIZE))} / lot de {WINE_LOT_SIZE}
+                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <QuantitySelector
+                      label={`lots de ${wine.name}`}
+                      value={bottles / WINE_LOT_SIZE}
+                      onChange={(lots) =>
+                        setQuantities((current) => ({
+                          ...current,
+                          [key("PRODUCT", wine.id)]: lots * WINE_LOT_SIZE,
+                        }))
+                      }
+                      min={0}
+                      max={Math.floor(999 / WINE_LOT_SIZE)}
+                    />
+                    {bottles > 0 ? (
+                      <span className="text-muted-foreground text-body-sm font-sans">
+                        {bottles} bouteilles
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
           {catalog.bundles.map((bundle) => (
             <li key={bundle.id} className="flex items-center justify-between gap-4">
               <Body>{bundle.name}</Body>

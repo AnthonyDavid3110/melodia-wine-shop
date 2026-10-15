@@ -281,7 +281,9 @@ test("an admin can attach a product, build a valid bundle, and configure a selle
     .click();
   await page.getByPlaceholder("Rechercher un vin…").fill(productName);
   await page.getByRole("option", { name: productName }).click();
-  await vinsSection.getByLabel("Prix (CHF)").fill("22.50");
+  // CORR-003: the attach-product price field now labels itself "per
+  // bottle" explicitly, since the public price shown is per lot of 3.
+  await vinsSection.getByLabel("Prix par bouteille (CHF)").fill("22.50");
   await vinsSection.getByRole("button", { name: "Ajouter à la campagne" }).click();
 
   await expect(vinsSection.getByText(productName)).toBeVisible({ timeout: 15000 });

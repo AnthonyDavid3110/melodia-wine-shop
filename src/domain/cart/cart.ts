@@ -20,6 +20,24 @@ export interface CartItem {
   quantity: number;
 }
 
+/**
+ * CORR-003 — individual wines (`PRODUCT` lines) are sold only in lots
+ * of 3 identical bottles; the Discovery Box (`BUNDLE`) is unaffected.
+ * `quantity` itself keeps meaning a real bottle count everywhere
+ * downstream (order items, wine requirements, exports, emails) — only
+ * the purchase UI ever thinks in lots, converting at the point of
+ * add/edit. This constant and the two helpers below are the single
+ * place that conversion/validation logic lives, reused by the cart UI,
+ * the checkout summary, and the order-creation schema/resolution so
+ * none of them can silently diverge.
+ */
+export const WINE_LOT_SIZE = 3;
+
+/** Whether `quantity` is a valid real-bottle count for this item's type — always true for a BUNDLE, a multiple of `WINE_LOT_SIZE` for a PRODUCT. */
+export function isLotCompatibleQuantity(type: CartItemType, quantity: number): boolean {
+  return type !== "PRODUCT" || quantity % WINE_LOT_SIZE === 0;
+}
+
 export interface Cart {
   campaignId: string;
   items: CartItem[];
@@ -119,7 +137,15 @@ export function cartItemCount(cart: Cart): number {
  * assertion after checking `available`.
  */
 export type ResolvedCartLine =
-  | { item: CartItem; available: true; name: string; unitPrice: Money; lineTotal: Money }
+  | {
+      item: CartItem;
+      available: true;
+      name: string;
+      unitPrice: Money;
+      lineTotal: Money;
+      /** CORR-003 — false for a PRODUCT line whose stored quantity predates the lots-of-3 rule (never auto-adjusted; see `isLotCompatibleQuantity`). Always true for a BUNDLE. */
+      lotCompatible: boolean;
+    }
   | { item: CartItem; available: false; name: null; unitPrice: null; lineTotal: null };
 
 /**
@@ -159,6 +185,7 @@ export function resolveCartAgainstCatalog(cart: Cart, catalog: PublicCatalog): R
         name: wine.name,
         unitPrice: wine.price,
         lineTotal: multiplyMoney(wine.price, item.quantity),
+        lotCompatible: isLotCompatibleQuantity(item.type, item.quantity),
       };
     }
 
@@ -172,6 +199,7 @@ export function resolveCartAgainstCatalog(cart: Cart, catalog: PublicCatalog): R
       name: bundle.name,
       unitPrice: bundle.price,
       lineTotal: multiplyMoney(bundle.price, item.quantity),
+      lotCompatible: true,
     };
   });
 }

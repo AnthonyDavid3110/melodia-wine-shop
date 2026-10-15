@@ -13,19 +13,21 @@ import { expect, test } from "./support/fixtures";
 
 const CART_STORAGE_KEY = "melodia:cart";
 
-test("customer can add a wine and a bundle, review /panier, adjust quantities, and see checkout disabled", async ({
+test("customer can add a wine (by the lot) and a bundle, review /panier, adjust quantities, and see checkout disabled", async ({
   page,
 }) => {
   await page.goto("/");
 
-  // Add the first wine (Chasselas, displayOrder 0) directly from the catalog row.
+  // CORR-003: one click on a wine's "Ajouter" now adds one LOT (3
+  // identical bottles), never a single ambiguous bottle. Chasselas is
+  // CHF 18.–/bottle, so one lot is CHF 54.–.
   await page.locator("#selection").getByRole("button", { name: "Ajouter" }).first().click();
-  await expect(page.getByRole("link", { name: "Panier, 1 article" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Panier, 3 articles" })).toBeVisible();
 
-  // Add the Discovery Box bundle.
+  // Add the Discovery Box bundle — unaffected by the lot rule, still one unit per click.
   const discoveryBox = page.getByRole("region", { name: "Cartons découverte" });
   await discoveryBox.getByRole("button", { name: "Ajouter" }).click();
-  await expect(page.getByRole("link", { name: "Panier, 2 articles" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Panier, 4 articles" })).toBeVisible();
 
   await page.goto("/panier");
   await expect(page.getByRole("heading", { name: "Panier", level: 1 })).toBeVisible();
@@ -33,40 +35,44 @@ test("customer can add a wine and a bundle, review /panier, adjust quantities, a
   // Both lines present with live catalog prices, not anything persisted client-side.
   await expect(page.getByText("Chasselas", { exact: true })).toBeVisible();
   await expect(page.getByText("Carton découverte", { exact: true })).toBeVisible();
-  await expect(page.getByText("CHF 138.–", { exact: true })).toBeVisible(); // 18 + 120
+  await expect(page.getByText("CHF 174.–", { exact: true })).toBeVisible(); // 54 (1 lot) + 120
 
-  // Raise the Chasselas quantity from 1 to 3.
-  const increaseChasselas = page.getByRole("button", {
-    name: "Augmenter la quantité de Chasselas",
+  // Raise the Chasselas quantity from 1 lot to 3 lots (3 × 3 = 9 bottles).
+  const increaseChasselasLots = page.getByRole("button", {
+    name: "Augmenter la quantité de lots de Chasselas",
   });
-  await increaseChasselas.click();
-  await increaseChasselas.click();
-  await expect(page.getByText("CHF 174.–", { exact: true })).toBeVisible(); // 3*18 + 120
-  await expect(page.getByRole("link", { name: "Panier, 4 articles" })).toBeVisible();
+  await increaseChasselasLots.click();
+  await increaseChasselasLots.click();
+  await expect(page.getByText("CHF 282.–", { exact: true })).toBeVisible(); // 9*18 + 120
+  await expect(page.getByRole("link", { name: "Panier, 10 articles" })).toBeVisible(); // 9 bottles + 1 box
 
   // Refresh: the server re-fetches the catalog, but the cart itself must survive via localStorage.
   await page.reload();
-  await expect(page.getByText("CHF 174.–", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Panier, 4 articles" })).toBeVisible();
+  await expect(page.getByText("CHF 282.–", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Panier, 10 articles" })).toBeVisible();
 
   // Remove the bundle line entirely.
   await page.getByRole("button", { name: "Retirer Carton découverte du panier" }).click();
   await expect(page.getByText("Carton découverte", { exact: true })).not.toBeVisible();
   // The line total and the overall total are now the same figure (one line left) — both legitimately on screen.
-  await expect(page.getByText("CHF 54.–", { exact: true })).toHaveCount(2); // 3*18, line + total
-  await expect(page.getByRole("link", { name: "Panier, 3 articles" })).toBeVisible();
+  await expect(page.getByText("CHF 162.–", { exact: true })).toHaveCount(2); // 9*18, line + total
+  await expect(page.getByRole("link", { name: "Panier, 9 articles" })).toBeVisible();
 
   // Checkout now exists (Phase 7) — "Passer la commande" links to /commande.
   await expect(page.getByRole("link", { name: "Passer la commande" })).toBeVisible();
 });
 
-test("decrementing a line's quantity to zero removes it (BR-CART-003)", async ({ page }) => {
+test("decrementing a wine's LOT quantity to zero removes it (BR-CART-003, lot-aware)", async ({
+  page,
+}) => {
   await page.goto("/");
   await page.locator("#selection").getByRole("button", { name: "Ajouter" }).first().click();
   await page.goto("/panier");
 
   await expect(page.getByText("Chasselas", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Diminuer la quantité de Chasselas" }).click();
+  // One lot was added — a single "decrease" click brings it to zero lots,
+  // removing the line entirely (never a partial, non-lot bottle count).
+  await page.getByRole("button", { name: "Diminuer la quantité de lots de Chasselas" }).click();
   await expect(page.getByText("Chasselas", { exact: true })).not.toBeVisible();
   await expect(page.getByText("Votre panier est vide.")).toBeVisible();
 });

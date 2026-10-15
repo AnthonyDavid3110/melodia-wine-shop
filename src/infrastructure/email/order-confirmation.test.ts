@@ -29,7 +29,9 @@ const INPUT: OrderConfirmationEmailInput = {
     deliveryNote: null,
     totalAmount: 1800,
   },
-  items: [{ nameSnapshot: "Chasselas", quantity: 1, lineTotalAmount: 1800 }],
+  items: [
+    { nameSnapshot: "Chasselas", quantity: 3, lineTotalAmount: 1800, itemType: "PRODUCT" as const },
+  ],
   paymentMethod: "SELLER",
   sellerName: null,
 };
@@ -319,7 +321,9 @@ describe("resendOrderConfirmation — Gate 11C", () => {
     totalAmount: 1800,
     sellerId: null,
   };
-  const items = [{ nameSnapshot: "Chasselas", quantity: 1, lineTotalAmount: 1800 }];
+  const items = [
+    { nameSnapshot: "Chasselas", quantity: 3, lineTotalAmount: 1800, itemType: "PRODUCT" as const },
+  ];
 
   beforeEach(() => {
     delete process.env.E2E_FAKE_EMAIL_PROVIDER;
