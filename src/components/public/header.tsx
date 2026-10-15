@@ -1,6 +1,6 @@
 import type { PublicCatalog } from "@/domain/catalog/public-catalog";
 import { CartBadge } from "@/components/cart/cart-badge";
-import { BrandMark } from "./brand-mark";
+import { BrandLogo } from "./brand-logo";
 
 /**
  * Restrained public header. No admin-login CTA in the primary
@@ -23,7 +23,7 @@ export function PublicHeader({ catalog }: { catalog: PublicCatalog }) {
   return (
     <header className="border-border bg-background/95 sticky top-0 z-10 border-b backdrop-blur-sm">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-4 sm:px-8">
-        <BrandMark />
+        <BrandLogo />
         <div className="flex items-center gap-6">
           <nav className="hidden items-center gap-6 font-sans text-sm sm:flex" aria-label="Navigation principale">
             <a href="#selection" className="hover:text-accent transition-colors">
