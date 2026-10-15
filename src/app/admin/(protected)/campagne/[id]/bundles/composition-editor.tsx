@@ -5,6 +5,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import type { CompositionFormState } from "./actions";
 
@@ -17,6 +18,8 @@ interface CompositionRow {
   productId: string;
   name: string;
   quantity: number;
+  /** CORR-001 — false when this component currently fails the public-visibility rule (absent from `visibleProductIds`), so the admin can spot the exact culprit without cross-referencing the diagnostic list above. */
+  visible?: boolean;
 }
 
 export function CompositionEditor({
@@ -80,7 +83,12 @@ export function CompositionEditor({
               key={row.productId}
               className="border-border flex items-center gap-3 border px-3 py-2"
             >
-              <span className="text-body-sm flex-1 font-sans">{row.name}</span>
+              <span className="text-body-sm flex flex-1 items-center gap-2 font-sans">
+                {row.name}
+                {row.visible === false ? (
+                  <StatusBadge tone="warning">Non visible</StatusBadge>
+                ) : null}
+              </span>
               <Label htmlFor={`qty-${row.productId}`} className="sr-only">
                 Quantité pour {row.name}
               </Label>

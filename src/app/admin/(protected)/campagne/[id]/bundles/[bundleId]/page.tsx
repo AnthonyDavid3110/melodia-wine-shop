@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth/dal";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { isBundleValid } from "@/domain/catalog/shape-public-catalog";
+import { diagnoseBundleInvalidity } from "@/domain/catalog/bundle-invalidity-reasons";
 import { getCampaign } from "@/infrastructure/campaign/campaigns";
 import { getBundle, getBundleItems } from "@/infrastructure/campaign/bundles";
 import { listCampaignProducts } from "@/infrastructure/campaign/campaign-products";
@@ -58,6 +59,20 @@ export default async function EditBundlePage({
     visibleProductIds,
   );
 
+  const invalidityReasons = isValid
+    ? []
+    : diagnoseBundleInvalidity(
+        items.map(({ item, product }) => ({
+          productId: item.productId,
+          productName: product.name,
+          productActive: product.active,
+        })),
+        campaignProductRows.map(({ campaignProduct }) => ({
+          productId: campaignProduct.productId,
+          active: campaignProduct.active,
+        })),
+      );
+
   const toggleActive = setBundleActiveAction.bind(null, campaignId, bundleId, !bundle.active);
 
   return (
@@ -81,10 +96,17 @@ export default async function EditBundlePage({
               </StatusBadge>
             </div>
             {!isValid ? (
-              <p className="text-warning border-warning text-body-sm max-w-md border-l-2 pl-3 font-sans">
-                N&rsquo;apparaîtra pas publiquement tant que sa composition ne comporte que des vins
-                visibles de cette campagne.
-              </p>
+              <div className="text-warning border-warning max-w-md border-l-2 pl-3 font-sans">
+                <p className="text-body-sm">
+                  N&rsquo;apparaîtra pas publiquement tant que les problèmes suivants ne sont pas
+                  résolus&nbsp;:
+                </p>
+                <ul className="text-body-sm mt-1 list-disc pl-4">
+                  {invalidityReasons.map((reason, index) => (
+                    <li key={reason.productId || index}>{reason.message}</li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
           </div>
           <form action={toggleActive}>
@@ -123,6 +145,7 @@ export default async function EditBundlePage({
             productId: item.productId,
             name: product.name,
             quantity: item.quantity,
+            visible: visibleProductIds.has(item.productId),
           }))}
           candidates={campaignProductRows.map(({ product }) => ({
             productId: product.id,
